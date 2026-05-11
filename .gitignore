@@ -1,0 +1,63 @@
+# ==========================================
+# Archivos de Python
+# ==========================================
+# Caché compilada de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================================
+# Entornos Virtuales
+# ==========================================
+# Ignorar la carpeta de tu entorno virtual (las librerías de pip)
+venv/
+env/
+ENV/
+.venv/
+
+# ==========================================
+# Configuración y Secretos (¡MUY IMPORTANTE!)
+# ==========================================
+# Tu archivo .env contiene la contraseña de OBS y tu calibración. 
+# Nunca debe subirse a GitHub u otro control de versiones.
+.env
+.env.backup
+.env.*
+
+# Archivos temporales que genera la librería dotenv (como el que bloqueaba OneDrive)
+.tmp*
+~*
+
+# ==========================================
+# Bases de Datos
+# ==========================================
+# Ignorar la base de datos local de SQLite donde guardas las escenas y tiempos
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================================
+# Compilación y Ejecutables (PyInstaller)
+# ==========================================
+# Si en el futuro compilas la app a un .exe
+build/
+dist/
+*.spec
+
+# ==========================================
+# Logs y Archivos de SO
+# ==========================================
+*.log
+# Windows
+Thumbs.db
+Desktop.ini
+# macOS (por si acaso alguien más lo abre)
+.DS_Store
+
+# ==========================================
+# Editores de Código (VS Code, PyCharm, etc.)
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
