@@ -50,6 +50,69 @@ Para iniciar el centro de mando de la transmisión, ejecuta:
 python main.py
 ```
 
+## 📦 Generar Ejecutable (.exe)
+
+El proyecto incluye el archivo `build.bat` para compilar la aplicación en un ejecutable de Windows sin necesidad de tener Python instalado.
+
+### Requisito previo (solo la primera vez)
+
+Con el entorno virtual activo, instala PyInstaller:
+
+```bash
+pip install pyinstaller
+```
+
+### Uso
+
+Haz doble clic en `build.bat` desde el Explorador de Windows. El proceso limpiará compilaciones anteriores y generará el ejecutable en la carpeta `dist\`.
+
+```
+dist\
+└── OBS_Automation_Manager.exe
+```
+
+### Contenido de `build.bat`
+
+```bat
+@echo off
+echo ============================================
+echo  Generando ejecutable OBS Automation Manager
+echo ============================================
+
+call venv\Scripts\activate.bat
+
+if exist build rmdir /s /q build
+if exist dist rmdir /s /q dist
+
+pyinstaller ^
+  --onefile ^
+  --windowed ^
+  --icon=app_icon.ico ^
+  --add-data "app_icon.ico;." ^
+  --name="OBS_Automation_Manager" ^
+  main.py
+
+echo.
+echo ============================================
+echo  Listo. El ejecutable esta en: dist\
+echo ============================================
+pause
+```
+
+### Flags de PyInstaller
+
+| Flag | Descripción |
+|---|---|
+| `--onefile` | Empaqueta toda la aplicación en un único `.exe` portable |
+| `--windowed` | Suprime la consola negra de Windows al ejecutar |
+| `--icon=app_icon.ico` | Asigna el ícono al `.exe` visible en el Explorador de archivos |
+| `--add-data "app_icon.ico;."` | Incluye el `.ico` dentro del ejecutable para que la interfaz lo cargue en tiempo de ejecución |
+| `--name` | Define el nombre del archivo `.exe` generado |
+
+### Nota sobre el archivo `.env`
+
+El ejecutable **no incluye** el archivo `.env`. El usuario final debe colocar su propio `.env` en la misma carpeta que `OBS_Automation_Manager.exe` con las credenciales de OBS antes de ejecutar la aplicación.
+
 ## 📝 Notas de Operación
 
 - Sincronización Horaria: Para que el marcador del calendario cambie de día automáticamente a la medianoche, la aplicación debe permanecer abierta y con el rotador iniciado.

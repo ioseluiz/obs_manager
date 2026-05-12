@@ -6,7 +6,8 @@ from views.styles import LIGHT_THEME_QSS
 from controllers.main_controller import MainController
 from core.database import init_db  # <-- Importamos el inicializador de la BD
 
-BASE_DIR = Path(__file__).parent
+# sys._MEIPASS existe cuando PyInstaller empaqueta la app como --onefile
+BASE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parent
 
 def main():
     # 1. Crear la base de datos y las tablas ANTES de iniciar cualquier controlador

@@ -1,7 +1,14 @@
+altgraph==0.17.5
 obsws-python==1.8.0
+packaging==26.2
+pefile==2024.8.26
 pillow==12.2.0
+pyinstaller==6.20.0
+pyinstaller-hooks-contrib==2026.5
 PyQt6==6.11.0
 PyQt6-Qt6==6.11.0
 PyQt6_sip==13.11.1
 python-dotenv==1.2.2
+pywin32-ctypes==0.2.3
+setuptools==82.0.1
 websocket-client==1.9.0

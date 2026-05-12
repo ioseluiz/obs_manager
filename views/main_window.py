@@ -1,10 +1,12 @@
+import sys
 from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QTabWidget,
                              QToolBar, QStatusBar, QPushButton, QLabel)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 
-_ICON_PATH = Path(__file__).parent.parent / "app_icon.ico"
+_BASE = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parent.parent
+_ICON_PATH = _BASE / "app_icon.ico"
 
 class MainWindow(QMainWindow):
     def __init__(self):

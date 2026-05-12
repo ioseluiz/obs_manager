@@ -39,10 +39,9 @@ ENV/
 # ==========================================
 # Compilación y Ejecutables (PyInstaller)
 # ==========================================
-# Si en el futuro compilas la app a un .exe
 build/
 dist/
-*.spec
+*.spec.bak
 
 # ==========================================
 # Logs y Archivos de SO
