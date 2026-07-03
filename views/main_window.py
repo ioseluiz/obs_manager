@@ -62,10 +62,17 @@ class MainWindow(QMainWindow):
         if connected:
             self.btn_connect.setText(" ✔ Conectado")
             self.btn_connect.setStyleSheet("background-color: #198754; color: white;")
-            self.lbl_connection_status.setText("Conectado ")
+            self.lbl_connection_status.setText("🟢 Conectado ")
             self.lbl_connection_status.setStyleSheet("color: #198754; font-weight: bold;")
         else:
             self.btn_connect.setText(" 🔌 Reconectar")
             self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
-            self.lbl_connection_status.setText("Desconectado ")
+            self.lbl_connection_status.setText("🔴 Desconectado ")
             self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
+
+    def set_reconnecting_ui(self, attempt: int):
+        """Estado intermedio: el watchdog está reintentando."""
+        self.btn_connect.setText(" 🔁 Reconectando…")
+        self.btn_connect.setStyleSheet("background-color: #FD7E14; color: white;")
+        self.lbl_connection_status.setText(f"🟠 Reconectando (intento {attempt}) ")
+        self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")

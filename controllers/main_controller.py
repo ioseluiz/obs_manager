@@ -2,6 +2,7 @@ from views.main_window import MainWindow
 from views.settings_view import SettingsDialog
 from views.scene_view import SceneView
 from views.calendar_view import CalendarView
+from views.logs_view import LogsView
 
 from models.obs_client import OBSClient
 from models.settings_model import SettingsModel
@@ -15,9 +16,12 @@ from models.countdown_model import CountdownModel
 from views.countdown_view import CountdownView
 from controllers.countdown_controller import CountdownController
 
-from core.workers import OBSConnectionWorker
+from core.workers import OBSConnectionWorker, OBSWatchdog
 
+import logging
 from PyQt6.QtWidgets import QMessageBox, QDialog
+
+log = logging.getLogger(__name__)
 
 class MainController:
     def __init__(self):
@@ -50,7 +54,21 @@ class MainController:
         self.countdown_view = CountdownView()
         self.countdown_controller = CountdownController(self.countdown_view, self.countdown_model, self.obs_client)
         self.main_window.tabs.addTab(self.countdown_view, "Contadores")
-        
+
+        # 3.5 Pestaña de Logs
+        self.logs_view = LogsView()
+        self.main_window.tabs.addTab(self.logs_view, "Logs")
+
+        # 4. Watchdog de conexión (arranca tras la primera conexión exitosa)
+        self.watchdog = OBSWatchdog(self.obs_client, self.settings_model.get_settings)
+        self.watchdog.connection_lost.connect(self._on_connection_lost)
+        self.watchdog.connection_restored.connect(self._on_connection_restored)
+        self.watchdog.reconnect_attempt.connect(self._on_reconnect_attempt)
+        self.watchdog.start()
+
+        # Estado para pausar/reanudar rotador ante caídas
+        self._rotator_was_running = False
+
         self._connect_signals()
 
     def _connect_signals(self):
@@ -91,6 +109,32 @@ class MainController:
         self.main_window.btn_connect.setEnabled(True)
         # Llamamos a la función que diseñamos para actualizar toda la UI visual
         self.main_window.set_connection_ui(True)
+        self.watchdog.mark_connected()
+        log.info("Conexión inicial a OBS establecida.")
+
+    def _on_connection_lost(self, message):
+        log.warning("Caída de OBS detectada por watchdog: %s", message)
+        self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
+        self.main_window.set_connection_ui(False)
+        # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
+        if self.scene_controller.timer.isActive() or self.scene_controller.is_paused:
+            self._rotator_was_running = True
+            self.scene_controller.timer.stop()
+            self.scene_controller.refresh_timer.stop()
+            log.info("Rotador detenido por caída de OBS.")
+
+    def _on_reconnect_attempt(self, attempt):
+        self.main_window.set_reconnecting_ui(attempt)
+
+    def _on_connection_restored(self):
+        log.info("Conexión con OBS restaurada.")
+        self.main_window.statusBar().showMessage("Reconectado a OBS", 5000)
+        self.main_window.set_connection_ui(True)
+        # Reanudar rotador si estaba activo antes de la caída
+        if self._rotator_was_running:
+            self._rotator_was_running = False
+            self.scene_controller.rotate_to_next_scene()
+            log.info("Rotador reanudado tras reconexión.")
 
     def _on_connection_error(self, error_message):
         self.main_window.statusBar().showMessage("Error de conexión")
@@ -102,3 +146,11 @@ class MainController:
     def show_main_window(self):
         self.main_window.show()
         self.connect_to_obs()
+
+    def shutdown(self):
+        """Detiene threads antes de cerrar la app."""
+        try:
+            self.watchdog.stop()
+            self.watchdog.wait(2000)
+        except Exception as e:
+            log.warning("Error deteniendo watchdog: %s", e)
