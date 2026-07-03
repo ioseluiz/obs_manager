@@ -51,6 +51,22 @@ Cambios en las escenas se aplican al navegador vivo de OBS **sin recrear el brow
 - **📋 Duplicar** — clonar una escena con todos sus ajustes.
 - **▲ Subir / ▼ Bajar** — reordenar en caliente sin interrumpir la escena en pantalla.
 - **Highlight visual** de la escena en reproducción en la tabla.
+- **Preview thumbnail** por escena en la tabla — captura automática al rotar + botón `🔄 Previews` para refresh manual completo.
+
+### Templates de Escena
+Presets configurables al agregar una escena para acelerar casos comunes:
+- **Dashboard Power BI Corporativo** — 1920×1080, mantiene sesión, refresh 5 min, CSS que oculta sidebars.
+- **Grafana / Monitoreo Live** — refresh cada 60s, sin sesión.
+- **Sitio Público / Landing** — recarga al entrar, sin refresh.
+- **Video Corporativo Silencioso** — loop + restart + mute.
+- **Imagen Estática 20s** — duración fija.
+
+### Export / Import de Configuración
+- **📤 Exportar** todas las escenas a un archivo JSON portable (todos los campos: tipo, dimensiones, CSS, transform, programación, video ops).
+- **📥 Importar** desde JSON con vista previa (lista de escenas, formato, fecha) y modo:
+  - **➕ Añadir al final** (renombra colisiones como "X (importada)").
+  - **♻ Reemplazar todas las existentes** (con confirmación fuerte).
+- Al importar, opcionalmente se crean también en OBS con todos los settings.
 
 ### Robustez (Producción 24/7)
 - **Auto-reconexión con watchdog** — ping cada 10s a OBS. Al detectar caída: reintenta con backoff exponencial (1, 2, 4, 8… 60s).
@@ -137,9 +153,9 @@ pip install pyinstaller
 
 MVC clásico:
 - `models/` — capa de datos (SQLite via `SceneModel`, `SettingsModel`, `CalendarModel`, `CountdownModel`; cliente OBS via `OBSClient`).
-- `views/` — widgets PyQt6 (`SceneView`, `SceneEditDialog`, `ScheduleWidget`, `LogsView`, `CalendarView`, `CountdownView`, `SettingsDialog`, `MainWindow`).
+- `views/` — widgets PyQt6 (`SceneView`, `SceneEditDialog`, `ImportPreviewDialog`, `ScheduleWidget`, `LogsView`, `CalendarView`, `CountdownView`, `SettingsDialog`, `MainWindow`).
 - `controllers/` — orquestación (`MainController`, `SceneController`, `CalendarController`, `CountdownController`).
-- `core/` — infraestructura (`database`, `workers` incluye `OBSConnectionWorker` y `OBSWatchdog`, `logging_setup`).
+- `core/` — infraestructura (`database`, `workers` con `OBSConnectionWorker`/`OBSWatchdog`, `logging_setup`, `templates`, `importexport`).
 
 ## 📝 Notas de Operación
 

@@ -4,25 +4,64 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
                              QDialogButtonBox, QPlainTextEdit, QMessageBox)
 from views.scene_view import CSS_PLACEHOLDER
 from views.schedule_widget import ScheduleWidget
+from core.templates import get_template_names, get_template_defaults
+
+
+def empty_scene_defaults():
+    """Defaults para modo agregar — coinciden con los defaults de la BD."""
+    return {
+        "id": None,
+        "name": "",
+        "duration": 20,
+        "tipo": "file",
+        "contenido": None,
+        "ancho": 1920, "alto": 1080, "fps": 30,
+        "reload_on_activate": False, "keep_session": True,
+        "custom_css": None,
+        "zoom_pct": 100, "pan_x": 0, "pan_y": 0,
+        "refresh_interval_seg": 0,
+        "video_loop": True, "video_restart_on_activate": True,
+        "video_mute": False, "video_volume_pct": 100, "video_offset_seg": 0,
+        "active_days": 127, "active_time_start": None, "active_time_end": None,
+    }
 
 
 class SceneEditDialog(QDialog):
-    def __init__(self, scene, parent=None, obs_client=None):
+    def __init__(self, scene=None, parent=None, obs_client=None, is_new=False):
         super().__init__(parent)
-        self.setWindowTitle(f"Editar escena — {scene['name']}")
-        self.setMinimumWidth(520)
+        self.is_new = is_new
+        if scene is None or is_new:
+            scene = scene or empty_scene_defaults()
+        self.setWindowTitle("Agregar Nueva Escena" if is_new
+                            else f"Editar escena — {scene['name']}")
+        self.setMinimumWidth(560)
         self._scene = scene
         self._obs_client = obs_client
 
         layout = QVBoxLayout(self)
 
-        info = QLabel("Recomendación: detén el rotador antes de editar la escena activa.")
+        if is_new:
+            info = QLabel("Completa los campos y presiona Aceptar para crear la escena en OBS + BD.")
+        else:
+            info = QLabel("Recomendación: detén el rotador antes de editar la escena activa.")
         info.setStyleSheet("color: #6C757D; font-style: italic;")
         layout.addWidget(info)
 
         form = QFormLayout()
 
-        self.input_name = QLineEdit(scene["name"])
+        # Template combo solo en modo agregar
+        if is_new:
+            self.combo_template = QComboBox()
+            for name in get_template_names():
+                self.combo_template.addItem(name)
+            self.combo_template.currentTextChanged.connect(self._on_template_changed)
+            self.combo_template.setToolTip("Preset con valores típicos. Podés seguir editando después.")
+            form.addRow("Template:", self.combo_template)
+        else:
+            self.combo_template = None
+
+        self.input_name = QLineEdit(scene.get("name", ""))
+        self.input_name.setPlaceholderText("Ej: DASHBOARD_VENTAS")
         form.addRow("Nombre (OBS):", self.input_name)
 
         self.combo_type = QComboBox()
@@ -34,7 +73,7 @@ class SceneEditDialog(QDialog):
 
         self.input_duration = QSpinBox()
         self.input_duration.setRange(1, 3600)
-        self.input_duration.setValue(scene["duration"])
+        self.input_duration.setValue(scene.get("duration", 20))
         form.addRow("Duración (seg):", self.input_duration)
 
         layout.addLayout(form)
@@ -94,6 +133,7 @@ class SceneEditDialog(QDialog):
         panel = QWidget()
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Archivo:"))
@@ -105,47 +145,55 @@ class SceneEditDialog(QDialog):
         row.addWidget(btn)
         outer.addLayout(row)
 
-        video_note = QLabel("Opciones de video (ignoradas en imágenes):")
-        video_note.setStyleSheet("color: #6C757D; font-style: italic;")
-        outer.addWidget(video_note)
+        # Opciones de video — todo en una sola línea + botón detectar
+        video_row = QHBoxLayout()
+        video_lbl = QLabel("Video:")
+        video_lbl.setStyleSheet("color: #6C757D;")
+        video_lbl.setToolTip("Opciones ignoradas si el archivo es una imagen")
+        video_row.addWidget(video_lbl)
 
-        row1 = QHBoxLayout()
-        self.chk_video_loop = QCheckBox("Repetir en bucle")
+        self.chk_video_loop = QCheckBox("Loop")
         self.chk_video_loop.setChecked(bool(scene.get("video_loop", True)))
-        self.chk_video_restart = QCheckBox("Reiniciar al entrar")
-        self.chk_video_restart.setChecked(bool(scene.get("video_restart_on_activate", True)))
-        row1.addWidget(self.chk_video_loop)
-        row1.addWidget(self.chk_video_restart)
-        row1.addStretch()
-        outer.addLayout(row1)
+        self.chk_video_loop.setToolTip("Repetir en bucle")
+        video_row.addWidget(self.chk_video_loop)
 
-        row2 = QHBoxLayout()
-        self.chk_video_mute = QCheckBox("Silenciar")
+        self.chk_video_restart = QCheckBox("Restart")
+        self.chk_video_restart.setChecked(bool(scene.get("video_restart_on_activate", True)))
+        self.chk_video_restart.setToolTip("Reiniciar al entrar a la escena")
+        video_row.addWidget(self.chk_video_restart)
+
+        self.chk_video_mute = QCheckBox("Mute")
         self.chk_video_mute.setChecked(bool(scene.get("video_mute", False)))
-        row2.addWidget(self.chk_video_mute)
-        row2.addWidget(QLabel("Volumen:"))
+        self.chk_video_mute.setToolTip("Silenciar")
+        video_row.addWidget(self.chk_video_mute)
+
+        video_row.addSpacing(8)
+        video_row.addWidget(QLabel("Vol:"))
         self.input_video_volume = QSpinBox()
         self.input_video_volume.setRange(0, 100)
         self.input_video_volume.setValue(int(scene.get("video_volume_pct") or 100))
         self.input_video_volume.setSuffix(" %")
-        row2.addWidget(self.input_video_volume)
-        row2.addSpacing(12)
-        row2.addWidget(QLabel("Comenzar desde:"))
+        self.input_video_volume.setMaximumWidth(80)
+        video_row.addWidget(self.input_video_volume)
+
+        video_row.addSpacing(8)
+        off_lbl = QLabel("Inicio:")
+        off_lbl.setToolTip("Comenzar reproducción desde este segundo")
+        video_row.addWidget(off_lbl)
         self.input_video_offset = QSpinBox()
         self.input_video_offset.setRange(0, 36000)
         self.input_video_offset.setValue(int(scene.get("video_offset_seg") or 0))
-        self.input_video_offset.setSuffix(" seg")
-        row2.addWidget(self.input_video_offset)
-        row2.addStretch()
-        outer.addLayout(row2)
+        self.input_video_offset.setSuffix(" s")
+        self.input_video_offset.setMaximumWidth(90)
+        video_row.addWidget(self.input_video_offset)
 
-        detect_row = QHBoxLayout()
-        self.btn_detect_duration = QPushButton("🎬 Detectar duración del video")
+        video_row.addStretch()
+        self.btn_detect_duration = QPushButton("🎬 Detectar duración")
         self.btn_detect_duration.setStyleSheet("background-color: #6C757D;")
         self.btn_detect_duration.clicked.connect(self._detect_video_duration)
-        detect_row.addWidget(self.btn_detect_duration)
-        detect_row.addStretch()
-        outer.addLayout(detect_row)
+        video_row.addWidget(self.btn_detect_duration)
+
+        outer.addLayout(video_row)
 
         return panel
 
@@ -235,7 +283,7 @@ class SceneEditDialog(QDialog):
         outer.addWidget(css_label)
         self.input_css = QPlainTextEdit()
         self.input_css.setPlaceholderText(CSS_PLACEHOLDER)
-        self.input_css.setFixedHeight(90)
+        self.input_css.setFixedHeight(70)
         if scene.get("custom_css"):
             self.input_css.setPlainText(scene["custom_css"])
         outer.addWidget(self.input_css)
@@ -250,11 +298,49 @@ class SceneEditDialog(QDialog):
         if path:
             self.input_file.setText(path)
 
+    def _on_template_changed(self, template_name):
+        defaults = get_template_defaults(template_name)
+        if not defaults:
+            return
+        if "tipo" in defaults:
+            idx = 1 if defaults["tipo"] == "url" else 0
+            self.combo_type.setCurrentIndex(idx)
+            self.stack.setCurrentIndex(idx)
+        if "duration" in defaults:
+            self.input_duration.setValue(int(defaults["duration"]))
+        if "ancho" in defaults:
+            self.input_width.setValue(int(defaults["ancho"]))
+        if "alto" in defaults:
+            self.input_height.setValue(int(defaults["alto"]))
+        if "fps" in defaults:
+            self.input_fps.setValue(int(defaults["fps"]))
+        if "reload_on_activate" in defaults:
+            self.chk_reload.setChecked(bool(defaults["reload_on_activate"]))
+        if "keep_session" in defaults:
+            self.chk_keep_session.setChecked(bool(defaults["keep_session"]))
+        if "custom_css" in defaults:
+            self.input_css.setPlainText(defaults["custom_css"] or "")
+        if "refresh_interval_seg" in defaults:
+            interval = int(defaults["refresh_interval_seg"] or 0)
+            self.chk_auto_refresh.setChecked(interval > 0)
+            if interval > 0:
+                self.input_refresh_interval.setValue(interval)
+        if "video_loop" in defaults:
+            self.chk_video_loop.setChecked(bool(defaults["video_loop"]))
+        if "video_restart_on_activate" in defaults:
+            self.chk_video_restart.setChecked(bool(defaults["video_restart_on_activate"]))
+        if "video_mute" in defaults:
+            self.chk_video_mute.setChecked(bool(defaults["video_mute"]))
+        if "video_volume_pct" in defaults:
+            self.input_video_volume.setValue(int(defaults["video_volume_pct"]))
+        if "video_offset_seg" in defaults:
+            self.input_video_offset.setValue(int(defaults["video_offset_seg"]))
+
     def get_values(self):
         tipo = self.combo_type.currentData()
         css_text = self.input_css.toPlainText().strip()
         return {
-            "id": self._scene["id"],
+            "id": self._scene.get("id"),
             "name": self.input_name.text().strip(),
             "duration": self.input_duration.value(),
             "tipo": tipo,

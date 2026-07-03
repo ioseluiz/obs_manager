@@ -15,7 +15,7 @@ class MainWindow(QMainWindow):
         # --- CONFIGURACIÓN DE LA VENTANA ---
         self.setWindowTitle("OBS Automation Manager - INI")
         self.setWindowIcon(QIcon(str(_ICON_PATH)))
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(1200, 750)
 
         # --- WIDGET CENTRAL Y LAYOUT ---
         self.central_widget = QWidget()
@@ -47,6 +47,17 @@ class MainWindow(QMainWindow):
         # Estilo inicial de conexión
         self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
         self.toolbar.addWidget(self.btn_connect)
+
+        self.toolbar.addSeparator()
+
+        # Export / Import de escenas
+        self.btn_export = QPushButton(" 📤 Exportar")
+        self.btn_export.setToolTip("Exportar todas las escenas a un archivo JSON")
+        self.toolbar.addWidget(self.btn_export)
+
+        self.btn_import = QPushButton(" 📥 Importar")
+        self.btn_import.setToolTip("Importar escenas desde un archivo JSON")
+        self.toolbar.addWidget(self.btn_import)
 
         # --- BARRA DE ESTADO (STATUS BAR) ---
         self.setStatusBar(QStatusBar())

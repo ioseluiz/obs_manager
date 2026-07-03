@@ -274,6 +274,29 @@ class OBSClient:
         except Exception as e:
             return False, f"Error creando input: {str(e)}"
 
+    def get_source_screenshot_base64(self, source_name, width=160, height=90):
+        """Devuelve el screenshot del source como string base64 (data URI stripped) o None.
+
+        OBS soporta el source aunque no sea el activo, mientras esté renderizando
+        (browser_source con shutdown=false, image/video ya cargados).
+        """
+        if not self.client:
+            return None
+        try:
+            resp = self.client.get_source_screenshot(
+                source_name, "jpeg", int(width), int(height), 60
+            )
+            img_data = getattr(resp, "image_data", None)
+            if not img_data:
+                return None
+            # Formato de OBS: "data:image/jpeg;base64,<base64>"
+            if img_data.startswith("data:"):
+                return img_data.split(",", 1)[1]
+            return img_data
+        except Exception as e:
+            log.debug("Screenshot falló para %s: %s", source_name, e)
+            return None
+
     def refresh_browser_source(self, input_name):
         """Fuerza F5 sobre un browser_source. Preserva cookies/sesión."""
         if not self.client:

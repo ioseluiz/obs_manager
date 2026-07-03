@@ -1,5 +1,7 @@
 import logging
+import base64
 from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QMessageBox, QFileDialog, QDialog
 from datetime import datetime
 from urllib.parse import urlparse
@@ -38,6 +40,14 @@ class SceneController:
         self.retry_timer.setSingleShot(True)
         self.retry_timer.timeout.connect(self.rotate_to_next_scene)
 
+        # Cache de thumbnails (scene_id → QPixmap)
+        self.thumbnail_cache = {}
+        # Timer para capturar el preview de la escena activa unos segundos tras cambiar
+        self.preview_timer = QTimer()
+        self.preview_timer.setSingleShot(True)
+        self.preview_timer.timeout.connect(self._capture_active_preview)
+        self._pending_preview_scene_id = None
+
         self._connect_signals()
         self.refresh_table()
         self.update_date_label() # Mostrar la fecha al abrir la app
@@ -54,8 +64,8 @@ class SceneController:
         self.view.btn_pause.clicked.connect(self.toggle_pause)
         self.view.btn_prev.clicked.connect(self.skip_previous)
         self.view.btn_next.clicked.connect(self.skip_next)
-        self.view.btn_browse.clicked.connect(self.browse_file)
         self.view.table.doubleClicked.connect(self._on_row_double_clicked)
+        self.view.btn_refresh_previews.clicked.connect(self.refresh_all_previews)
 
         # Live tuning: al cambiar la selección de la tabla, cargar valores.
         self.view.table.itemSelectionChanged.connect(self._on_live_selection_changed)
@@ -254,95 +264,80 @@ class SceneController:
         # Si la escena activa desapareció de la lista (borrada), acotar
         self.current_index = self.current_index % len(self.scenes_list)
 
-    def browse_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self.view, "Seleccionar Archivo Multimedia", "",
-            "Archivos Multimedia (*.mp4 *.mov *.mkv *.png *.jpg *.jpeg *.gif);;Todos los archivos (*)"
-        )
-        if file_path:
-            self.view.input_file.setText(file_path)
-
     def refresh_table(self):
         self.scenes_list = self.model.get_all_scenes()
-        self.view.populate_table(self.scenes_list)
+        self.view.populate_table(self.scenes_list, self.thumbnail_cache)
 
     def add_scene(self):
-        name = self.view.input_name.text().strip()
-        duration = self.view.input_duration.value()
-        tipo = self.view.get_current_type()
-        tf = self.view.get_transform_options()
-        sch = self.view.get_schedule_options()
+        dialog = SceneEditDialog(scene=None, parent=self.view,
+                                 obs_client=self.obs_client, is_new=True)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        v = dialog.get_values()
 
-        if not name:
+        # Validaciones
+        if not v["name"]:
             QMessageBox.warning(self.view, "Error", "El nombre de la escena no puede estar vacío.")
             return
+        if self.model.scene_name_exists(v["name"]):
+            QMessageBox.warning(self.view, "Error",
+                                f"Ya existe una escena llamada '{v['name']}'. Usa otro nombre.")
+            return
+        if v["tipo"] == "url" and not self._is_valid_url(v.get("contenido") or ""):
+            QMessageBox.warning(self.view, "Error",
+                                "URL inválida. Debe iniciar con http:// o https://")
+            return
 
-        if tipo == "url":
-            opts = self.view.get_web_options()
-            url = opts["url"]
-            if not self._is_valid_url(url):
-                QMessageBox.warning(self.view, "Error", "URL inválida. Debe iniciar con http:// o https://")
-                return
+        # Crear en OBS
+        if v["tipo"] == "url" or (v["tipo"] == "file" and v.get("contenido")):
             if not self.obs_client.client:
-                QMessageBox.warning(self.view, "Error", "Conecta OBS primero para poder crear la escena remota.")
+                QMessageBox.warning(self.view, "Error",
+                                    "Conecta OBS primero para poder crear la escena remota.")
                 return
-            success, msg = self.obs_client.create_web_scene(
-                name, url,
-                width=opts["ancho"], height=opts["alto"], fps=opts["fps"],
-                reload_on_activate=opts["reload_on_activate"],
-                keep_session=opts["keep_session"],
-                custom_css=opts["custom_css"],
-            )
-            if not success:
+            if v["tipo"] == "url":
+                ok, msg = self.obs_client.create_web_scene(
+                    v["name"], v["contenido"],
+                    width=v["ancho"], height=v["alto"], fps=v["fps"],
+                    reload_on_activate=v["reload_on_activate"],
+                    keep_session=v["keep_session"],
+                    custom_css=v["custom_css"],
+                )
+            else:
+                ok, msg = self.obs_client.create_scene_with_media(
+                    v["name"], v["contenido"],
+                    video_loop=v["video_loop"],
+                    video_restart_on_activate=v["video_restart_on_activate"],
+                    video_mute=v["video_mute"],
+                    video_volume_pct=v["video_volume_pct"],
+                    video_offset_seg=v["video_offset_seg"],
+                )
+            if not ok:
                 QMessageBox.critical(self.view, "Error de OBS", msg)
                 return
-            self._apply_transform_if_needed(name, "url", tf)
-            self.model.add_scene(
-                name, duration,
-                tipo="url", contenido=url,
-                ancho=opts["ancho"], alto=opts["alto"], fps=opts["fps"],
-                reload_on_activate=opts["reload_on_activate"],
-                keep_session=opts["keep_session"],
-                custom_css=opts["custom_css"],
-                zoom_pct=tf["zoom_pct"], pan_x=tf["pan_x"], pan_y=tf["pan_y"],
-                refresh_interval_seg=opts["refresh_interval_seg"],
-                active_days=sch["active_days"],
-                active_time_start=sch["active_time_start"],
-                active_time_end=sch["active_time_end"],
-            )
-        else:
-            file_path = self.view.input_file.text().strip()
-            vopts = self.view.get_video_options()
-            if file_path:
-                if not self.obs_client.client:
-                    QMessageBox.warning(self.view, "Error", "Conecta OBS primero para poder crear la escena remota.")
-                    return
-                success, msg = self.obs_client.create_scene_with_media(
-                    name, file_path,
-                    video_loop=vopts["video_loop"],
-                    video_restart_on_activate=vopts["video_restart_on_activate"],
-                    video_mute=vopts["video_mute"],
-                    video_volume_pct=vopts["video_volume_pct"],
-                    video_offset_seg=vopts["video_offset_seg"],
-                )
-                if not success:
-                    QMessageBox.critical(self.view, "Error de OBS", msg)
-                    return
-                self._apply_transform_if_needed(name, "file", tf)
-            self.model.add_scene(
-                name, duration, tipo="file", contenido=file_path or None,
-                zoom_pct=tf["zoom_pct"], pan_x=tf["pan_x"], pan_y=tf["pan_y"],
-                video_loop=vopts["video_loop"],
-                video_restart_on_activate=vopts["video_restart_on_activate"],
-                video_mute=vopts["video_mute"],
-                video_volume_pct=vopts["video_volume_pct"],
-                video_offset_seg=vopts["video_offset_seg"],
-                active_days=sch["active_days"],
-                active_time_start=sch["active_time_start"],
-                active_time_end=sch["active_time_end"],
-            )
+            # Transform si difiere del default
+            tf = {"zoom_pct": v["zoom_pct"], "pan_x": v["pan_x"], "pan_y": v["pan_y"]}
+            self._apply_transform_if_needed(v["name"], v["tipo"], tf)
 
-        self.view.clear_inputs()
+        # Guardar en BD
+        self.model.add_scene(
+            v["name"], v["duration"],
+            tipo=v["tipo"], contenido=v.get("contenido"),
+            ancho=v["ancho"], alto=v["alto"], fps=v["fps"],
+            reload_on_activate=v["reload_on_activate"],
+            keep_session=v["keep_session"],
+            custom_css=v["custom_css"],
+            zoom_pct=v["zoom_pct"], pan_x=v["pan_x"], pan_y=v["pan_y"],
+            refresh_interval_seg=v["refresh_interval_seg"],
+            video_loop=v["video_loop"],
+            video_restart_on_activate=v["video_restart_on_activate"],
+            video_mute=v["video_mute"],
+            video_volume_pct=v["video_volume_pct"],
+            video_offset_seg=v["video_offset_seg"],
+            active_days=v["active_days"],
+            active_time_start=v["active_time_start"],
+            active_time_end=v["active_time_end"],
+        )
+        log.info("Escena creada: '%s' (%s)", v["name"], v["tipo"])
         self.refresh_table()
 
     def _apply_transform_if_needed(self, scene_name, tipo, tf):
@@ -854,6 +849,9 @@ class SceneController:
             self.view.highlight_active_scene(scene["name"])
             log.info("Rotar → '%s' (dur %ds, tipo %s)",
                      scene["name"], scene["duration"], scene.get("tipo", "?"))
+            # Capturar preview 3s después de activar (dar tiempo a renderizar)
+            self._pending_preview_scene_id = scene["id"]
+            self.preview_timer.start(3000)
 
             # Auto-refresh: solo si es escena URL con intervalo definido
             interval = scene.get("refresh_interval_seg") or 0
@@ -889,6 +887,49 @@ class SceneController:
         """Dibuja el estado y el reloj de arena en la interfaz."""
         self.view.lbl_status.setText(f"Mostrando: {self.active_scene_name}  ( ⏳ {self.time_left} seg )")
         self.view.lbl_status.setStyleSheet("font-weight: bold; color: #0D6EFD;")
+
+    def _capture_active_preview(self):
+        """Captura un screenshot del source de la escena que acaba de activarse."""
+        if self._pending_preview_scene_id is None or not self.obs_client.client:
+            return
+        scene_id = self._pending_preview_scene_id
+        scene = next((s for s in self.scenes_list if s["id"] == scene_id), None)
+        if not scene:
+            return
+        source_name = self._input_name_for(scene["tipo"], scene["name"])
+        pixmap = self._grab_pixmap(source_name)
+        if pixmap:
+            self.thumbnail_cache[scene_id] = pixmap
+            self.view.set_row_preview(scene_id, pixmap)
+
+    def refresh_all_previews(self):
+        """Recorre todas las escenas y refresca sus miniaturas."""
+        if not self.obs_client.client:
+            QMessageBox.warning(self.view, "Aviso", "Conecta OBS primero para actualizar previews.")
+            return
+        updated = 0
+        for scene in self.scenes_list:
+            source_name = self._input_name_for(scene["tipo"], scene["name"])
+            pixmap = self._grab_pixmap(source_name)
+            if pixmap:
+                self.thumbnail_cache[scene["id"]] = pixmap
+                self.view.set_row_preview(scene["id"], pixmap)
+                updated += 1
+        log.info("Previews actualizados: %d/%d escenas", updated, len(self.scenes_list))
+
+    def _grab_pixmap(self, source_name):
+        """Toma screenshot vía OBS y devuelve QPixmap 80x45 o None."""
+        b64 = self.obs_client.get_source_screenshot_base64(source_name, width=160, height=90)
+        if not b64:
+            return None
+        try:
+            raw = base64.b64decode(b64)
+            pixmap = QPixmap()
+            if pixmap.loadFromData(raw, "JPEG"):
+                return pixmap
+        except Exception as e:
+            log.debug("Decode preview falló: %s", e)
+        return None
 
     def _auto_refresh_active_scene(self):
         """Fuerza F5 sobre el browser_source activo. Preserva sesión/cookies."""
