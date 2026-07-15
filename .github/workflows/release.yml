@@ -54,10 +54,17 @@ jobs:
           $size = (Get-Item "dist\OBS_Automation_Manager.exe").Length / 1MB
           Write-Host "Executable size: $([math]::Round($size, 2)) MB"
 
+      - name: Rename executable with version
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.VERSION }}"
+          Rename-Item "dist\OBS_Automation_Manager.exe" "OBS_Automation_Manager_v$ver.exe"
+          Write-Host "Renamed to OBS_Automation_Manager_v$ver.exe"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/OBS_Automation_Manager.exe
+          files: dist/OBS_Automation_Manager_v${{ steps.version.outputs.VERSION }}.exe
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -67,7 +74,7 @@ jobs:
             Aplicación portable de escritorio para automatización de transmisiones OBS.
 
             ### 📦 Instalación
-            1. Descarga `OBS_Automation_Manager.exe` de los assets abajo.
+            1. Descarga `OBS_Automation_Manager_v${{ steps.version.outputs.VERSION }}.exe` de los assets abajo.
             2. Colócalo en la carpeta de tu preferencia.
             3. Crea un archivo `.env` en la misma carpeta con las credenciales de OBS WebSocket (ver README).
             4. Ejecuta doble-click.
