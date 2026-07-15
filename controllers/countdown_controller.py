@@ -1,6 +1,9 @@
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMessageBox
 import datetime
+import logging
+
+log = logging.getLogger(__name__)
 
 class CountdownController:
     def __init__(self, view, model, obs_client):
@@ -54,52 +57,111 @@ class CountdownController:
             self.model.delete_countdown(c_id)
             self.refresh_table()
 
+    def _set_sync_ui(self, syncing):
+        self.is_syncing = syncing
+        if syncing:
+            self.view.btn_toggle_sync.setText("⏹ Detener Sincronización")
+            self.view.btn_toggle_sync.setStyleSheet("background-color: #DC3545;")
+        else:
+            self.view.btn_toggle_sync.setText("▶ Iniciar Sincronización")
+            self.view.btn_toggle_sync.setStyleSheet("background-color: #198754;")
+
+    def _stop_sync(self):
+        self.timer.stop()
+        self._set_sync_ui(False)
+
+    def _required_source_names(self):
+        """Nombres únicos y no vacíos de todos los text sources referenciados por los contadores."""
+        names = set()
+        for c in self.countdowns:
+            for key in ("source_dias", "source_horas", "source_minutos", "source_segundos"):
+                n = (c.get(key) or "").strip()
+                if n:
+                    names.add(n)
+        return names
+
+    def _preflight_check(self):
+        """Verifica que todos los text sources referenciados existan en OBS.
+
+        Devuelve True si todo OK. Si faltan, muestra dialog y devuelve False.
+        Si no se pudo consultar OBS (list_input_names devolvió None), sigue
+        adelante con un warning en log — no bloquea al usuario por un fallo
+        transitorio del enum.
+        """
+        required = self._required_source_names()
+        if not required:
+            QMessageBox.warning(
+                self.view, "Nada que sincronizar",
+                "Ningún contador tiene fuentes OBS configuradas."
+            )
+            return False
+
+        existing = self.obs_client.list_input_names()
+        if existing is None:
+            log.warning("Preflight: no se pudo enumerar inputs de OBS; se continúa sin validar.")
+            return True
+
+        missing = sorted(required - existing)
+        if missing:
+            QMessageBox.warning(
+                self.view, "Fuentes faltantes en OBS",
+                "Las siguientes fuentes de texto no existen en OBS:\n\n  • "
+                + "\n  • ".join(missing)
+                + "\n\nCréalas en OBS (Sources → +Text) con esos nombres exactos "
+                "y vuelve a intentar."
+            )
+            return False
+        return True
+
     def toggle_sync(self):
+        if self.is_syncing:
+            self._stop_sync()
+            return
+
         if not self.obs_client.client:
             QMessageBox.warning(self.view, "Error", "Conecta OBS primero.")
             return
 
-        if self.is_syncing:
-            self.timer.stop()
-            self.is_syncing = False
-            self.view.btn_toggle_sync.setText("▶ Iniciar Sincronización")
-            self.view.btn_toggle_sync.setStyleSheet("background-color: #198754;")
-        else:
-            self.timer.start(1000) # Ejecutar cada 1 segundo
-            self.is_syncing = True
-            self.view.btn_toggle_sync.setText("⏹ Detener Sincronización")
-            self.view.btn_toggle_sync.setStyleSheet("background-color: #DC3545;")
+        if not self._preflight_check():
+            return
+
+        self.timer.start(1000)
+        self._set_sync_ui(True)
 
     def process_countdowns(self):
         if not self.obs_client.client:
-            self.toggle_sync()
+            log.warning("Sincronización de contadores detenida: OBS no está conectado.")
+            self._stop_sync()
             return
 
         now = datetime.datetime.now()
 
         for c in self.countdowns:
-            target = datetime.datetime.fromisoformat(c["fecha_objetivo"])
-            
-            # Lógica de repetición anual (Como el script Lua original)
-            if now > target:
-                if c["repetir_anual"]:
-                    # Le sumamos un año a la fecha objetivo temporalmente para el cálculo
-                    target = target.replace(year=now.year)
-                    if now > target:
-                        target = target.replace(year=now.year + 1)
-                    diff = target - now
+            try:
+                target = datetime.datetime.fromisoformat(c["fecha_objetivo"])
+
+                # Lógica de repetición anual (Como el script Lua original)
+                if now > target:
+                    if c["repetir_anual"]:
+                        # Le sumamos un año a la fecha objetivo temporalmente para el cálculo
+                        target = target.replace(year=now.year)
+                        if now > target:
+                            target = target.replace(year=now.year + 1)
+                        diff = target - now
+                    else:
+                        diff = datetime.timedelta(0) # Se queda en cero
                 else:
-                    diff = datetime.timedelta(0) # Se queda en cero
-            else:
-                diff = target - now
+                    diff = target - now
 
-            # Extracción de tiempo
-            dias = diff.days
-            horas, remainder = divmod(diff.seconds, 3600)
-            minutos, segundos = divmod(remainder, 60)
+                # Extracción de tiempo
+                dias = diff.days
+                horas, remainder = divmod(diff.seconds, 3600)
+                minutos, segundos = divmod(remainder, 60)
 
-            # Enviar por WebSocket a OBS formateando con ceros a la izquierda (ej: 09)
-            if c["source_dias"]: self.obs_client.set_text_source_text(c["source_dias"], f"{dias:02d}")
-            if c["source_horas"]: self.obs_client.set_text_source_text(c["source_horas"], f"{horas:02d}")
-            if c["source_minutos"]: self.obs_client.set_text_source_text(c["source_minutos"], f"{minutos:02d}")
-            if c["source_segundos"]: self.obs_client.set_text_source_text(c["source_segundos"], f"{segundos:02d}")
+                # Enviar por WebSocket a OBS formateando con ceros a la izquierda (ej: 09)
+                if c["source_dias"]: self.obs_client.set_text_source_text(c["source_dias"], f"{dias:02d}")
+                if c["source_horas"]: self.obs_client.set_text_source_text(c["source_horas"], f"{horas:02d}")
+                if c["source_minutos"]: self.obs_client.set_text_source_text(c["source_minutos"], f"{minutos:02d}")
+                if c["source_segundos"]: self.obs_client.set_text_source_text(c["source_segundos"], f"{segundos:02d}")
+            except Exception as e:
+                log.error("Fallo procesando contador '%s': %s", c.get("nombre", "?"), e)

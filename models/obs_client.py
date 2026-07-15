@@ -297,6 +297,40 @@ class OBSClient:
             log.debug("Screenshot falló para %s: %s", source_name, e)
             return None
 
+    def list_input_names(self):
+        """Devuelve un set con los nombres de todos los inputs de OBS, o None si falla."""
+        if not self.client:
+            return None
+        try:
+            resp = self.client.get_input_list()
+            inputs = getattr(resp, "inputs", []) or []
+            names = set()
+            for item in inputs:
+                # Cada item viene como dict con la clave 'inputName'
+                if isinstance(item, dict):
+                    n = item.get("inputName")
+                    if n:
+                        names.add(n)
+            return names
+        except Exception as e:
+            log.warning("list_input_names falló: %s", e)
+            return None
+
+    def set_text_source_text(self, source_name, text):
+        """Actualiza el texto de un text source (text_gdiplus_v3 / text_ft2_source_v2).
+
+        Devuelve (ok, msg). No lanza excepciones — logea y sigue, para que un
+        source inexistente no rompa el loop de sincronización de contadores.
+        """
+        if not self.client:
+            return False, "OBS no está conectado."
+        try:
+            self.client.set_input_settings(source_name, {"text": str(text)}, True)
+            return True, "OK"
+        except Exception as e:
+            log.warning("set_text_source_text falló para '%s': %s", source_name, e)
+            return False, str(e)
+
     def refresh_browser_source(self, input_name):
         """Fuerza F5 sobre un browser_source. Preserva cookies/sesión."""
         if not self.client:
