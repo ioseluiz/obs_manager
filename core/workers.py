@@ -2,6 +2,8 @@ import logging
 import time
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from core import obs_launcher
+
 log = logging.getLogger(__name__)
 
 
@@ -23,6 +25,55 @@ class OBSConnectionWorker(QThread):
             self.connection_success.emit(message)
         else:
             self.connection_error.emit(message)
+
+
+class OBSLauncherWorker(QThread):
+    """Lanza OBS y espera a que el WebSocket responda.
+
+    Flujo:
+      1. Ejecuta obs_launcher.launch_obs(exe_path).
+      2. Poll de conexión hasta `timeout_seconds` (1 intento por segundo).
+      3. Emite finished(True, msg) si conecta, o finished(False, msg) si falla.
+    """
+
+    launching = pyqtSignal()
+    waiting_websocket = pyqtSignal(int)  # nº de intento
+    finished_launch = pyqtSignal(bool, str)
+
+    def __init__(self, obs_client, exe_path, host, port, password,
+                 timeout_seconds=30):
+        super().__init__()
+        self.obs_client = obs_client
+        self.exe_path = exe_path
+        self.host = host
+        self.port = port
+        self.password = password
+        self.timeout_seconds = timeout_seconds
+
+    def run(self):
+        self.launching.emit()
+        ok, msg = obs_launcher.launch_obs(self.exe_path)
+        if not ok:
+            self.finished_launch.emit(False, f"No se pudo lanzar OBS: {msg}")
+            return
+
+        for attempt in range(1, self.timeout_seconds + 1):
+            self.waiting_websocket.emit(attempt)
+            success, conn_msg = self.obs_client.connect(
+                self.host, self.port, self.password
+            )
+            if success:
+                self.finished_launch.emit(True, "Conectado tras auto-launch")
+                return
+            time.sleep(1)
+
+        self.finished_launch.emit(
+            False,
+            "OBS se lanzó pero el WebSocket no respondió en "
+            f"{self.timeout_seconds} segundos.\n"
+            "Verifica que WebSocket esté habilitado en Herramientas → "
+            "WebSocket Server Settings."
+        )
 
 
 class OBSWatchdog(QThread):

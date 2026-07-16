@@ -14,6 +14,8 @@ class SettingsModel:
             "host": os.getenv("OBS_HOST", "localhost"),
             "port": os.getenv("OBS_PORT", "4455"),
             "password": os.getenv("OBS_PASSWORD", ""),
+            "obs_exe_path": os.getenv("OBS_EXE_PATH", ""),
+            "obs_autolaunch": os.getenv("OBS_AUTOLAUNCH", "true").strip().lower() == "true",
             "cal_scene": os.getenv("CAL_SCENE_NAME", "CUMPLEANOS DEL MES"),
             "cal_source": os.getenv("CAL_SOURCE_NAME", "CIRCULO"),
             "cal_x_start": int(os.getenv("CAL_X_START", 270)),
@@ -64,6 +66,12 @@ class SettingsModel:
             "OBS_HOST": host,
             "OBS_PORT": str(port),
             "OBS_PASSWORD": password
+        })
+
+    def save_launch_settings(self, exe_path, autolaunch):
+        self._update_env_file({
+            "OBS_EXE_PATH": exe_path or "",
+            "OBS_AUTOLAUNCH": "true" if autolaunch else "false"
         })
 
     def save_calendar_settings(self, scene, source, x_start, y_start, x_space, y_space, scale):

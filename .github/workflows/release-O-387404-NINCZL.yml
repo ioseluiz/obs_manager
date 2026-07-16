@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF -replace 'refs/tags/v', ''
+          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building version: $ver"
+
+      - name: Build executable with PyInstaller (onefile portable)
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --icon=app_icon.ico `
+            --add-data "app_icon.ico;." `
+            --name=OBS_Automation_Manager `
+            main.py
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\OBS_Automation_Manager.exe")) {
+            Write-Error "Build failed: dist\OBS_Automation_Manager.exe not found"
+            exit 1
+          }
+          $size = (Get-Item "dist\OBS_Automation_Manager.exe").Length / 1MB
+          Write-Host "Executable size: $([math]::Round($size, 2)) MB"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/OBS_Automation_Manager.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## OBS Automation Manager ${{ steps.version.outputs.VERSION }}
+
+            Aplicación portable de escritorio para automatización de transmisiones OBS.
+
+            ### 📦 Instalación
+            1. Descarga `OBS_Automation_Manager.exe` de los assets abajo.
+            2. Colócalo en la carpeta de tu preferencia.
+            3. Crea un archivo `.env` en la misma carpeta con las credenciales de OBS WebSocket (ver README).
+            4. Ejecuta doble-click.
+
+            ### ⚙️ Requisitos
+            - Windows 10/11
+            - OBS Studio 28.0+ con WebSocket habilitado
+
+            Ver [README](https://github.com/${{ github.repository }}/blob/main/README.md) para documentación completa.

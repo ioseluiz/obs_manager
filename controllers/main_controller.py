@@ -5,7 +5,7 @@ from views.calendar_view import CalendarView
 from views.logs_view import LogsView
 from views.import_dialog import ImportPreviewDialog
 
-from core import importexport
+from core import importexport, obs_launcher
 
 from models.obs_client import OBSClient
 from models.settings_model import SettingsModel
@@ -19,9 +19,10 @@ from models.countdown_model import CountdownModel
 from views.countdown_view import CountdownView
 from controllers.countdown_controller import CountdownController
 
-from core.workers import OBSConnectionWorker, OBSWatchdog
+from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker
 
 import logging
+import sys
 from datetime import datetime
 from PyQt6.QtWidgets import QMessageBox, QDialog, QFileDialog
 
@@ -84,13 +85,17 @@ class MainController:
     def open_settings(self):
         current_settings = self.settings_model.get_settings()
         dialog = SettingsDialog(current_settings, self.main_window)
-        
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
             self.settings_model.save_settings(
-                new_settings["host"], 
-                new_settings["port"], 
+                new_settings["host"],
+                new_settings["port"],
                 new_settings["password"]
+            )
+            self.settings_model.save_launch_settings(
+                new_settings["obs_exe_path"],
+                new_settings["obs_autolaunch"]
             )
             self.connect_to_obs()
 
@@ -143,11 +148,52 @@ class MainController:
             log.info("Rotador reanudado tras reconexión.")
 
     def _on_connection_error(self, error_message):
+        settings = self.settings_model.get_settings()
+        # Si el usuario activó auto-launch y OBS no está corriendo, intentamos abrirlo.
+        if (sys.platform == "win32"
+                and settings.get("obs_autolaunch", True)
+                and not obs_launcher.is_obs_running()):
+            exe_path = settings.get("obs_exe_path") or obs_launcher.find_obs_executable()
+            if exe_path:
+                self._start_autolaunch(exe_path, settings)
+                return
+            log.warning("Auto-launch activo pero no se encontró obs64.exe.")
+
+        self._show_connection_error(error_message)
+
+    def _show_connection_error(self, error_message):
         self.main_window.statusBar().showMessage("Error de conexión")
         self.main_window.btn_connect.setEnabled(True)
-        # Revertimos la UI visual a desconectado
         self.main_window.set_connection_ui(False)
-        QMessageBox.critical(self.main_window, "Error de Conexión", f"No se pudo conectar a OBS:\n{error_message}")
+        QMessageBox.critical(
+            self.main_window, "Error de Conexión",
+            f"No se pudo conectar a OBS:\n{error_message}"
+        )
+
+    def _start_autolaunch(self, exe_path, settings):
+        log.info("Iniciando auto-launch de OBS desde: %s", exe_path)
+        self.launcher_worker = OBSLauncherWorker(
+            self.obs_client, exe_path,
+            settings["host"], int(settings["port"]), settings["password"]
+        )
+        self.launcher_worker.launching.connect(self._on_launch_starting)
+        self.launcher_worker.waiting_websocket.connect(self._on_launch_waiting)
+        self.launcher_worker.finished_launch.connect(self._on_launch_finished)
+        self.launcher_worker.start()
+
+    def _on_launch_starting(self):
+        self.main_window.statusBar().showMessage("Iniciando OBS Studio…")
+
+    def _on_launch_waiting(self, attempt):
+        self.main_window.statusBar().showMessage(
+            f"Esperando OBS WebSocket ({attempt}/30)…"
+        )
+
+    def _on_launch_finished(self, success, message):
+        if success:
+            self._on_connection_success(message)
+        else:
+            self._show_connection_error(message)
 
     def export_scenes(self):
         scenes = self.scene_model.get_all_scenes()
