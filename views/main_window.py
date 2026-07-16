@@ -59,9 +59,27 @@ class MainWindow(QMainWindow):
         self.btn_import.setToolTip("Importar escenas desde un archivo JSON")
         self.toolbar.addWidget(self.btn_import)
 
+        self.toolbar.addSeparator()
+
+        # Botón de Grabación (toggle) — oculto por defecto; se activa desde Ajustes
+        self.btn_record = QPushButton(" ● Grabar")
+        self.btn_record.setToolTip("Iniciar grabación en OBS")
+        self.btn_record.setEnabled(False)  # Se habilita al conectar
+        self.btn_record.setVisible(False)  # Se muestra solo si el usuario habilita grabación
+        self._record_style_idle = "background-color: #6C757D; color: white;"
+        self._record_style_active = "background-color: #DC3545; color: white;"
+        self.btn_record.setStyleSheet(self._record_style_idle)
+        self.toolbar.addWidget(self.btn_record)
+
         # --- BARRA DE ESTADO (STATUS BAR) ---
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("Listo")
+
+        # Timer de grabación (permanent widget, oculto por defecto)
+        self.lbl_record_timer = QLabel("")
+        self.lbl_record_timer.setStyleSheet("color: #DC3545; font-weight: bold;")
+        self.lbl_record_timer.setVisible(False)
+        self.statusBar().addPermanentWidget(self.lbl_record_timer)
 
         # Label para indicar el estado de la conexión en la barra de estado
         self.lbl_connection_status = QLabel("Desconectado ")
@@ -75,11 +93,13 @@ class MainWindow(QMainWindow):
             self.btn_connect.setStyleSheet("background-color: #198754; color: white;")
             self.lbl_connection_status.setText("🟢 Conectado ")
             self.lbl_connection_status.setStyleSheet("color: #198754; font-weight: bold;")
+            self.btn_record.setEnabled(True)
         else:
             self.btn_connect.setText(" 🔌 Reconectar")
             self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
             self.lbl_connection_status.setText("🔴 Desconectado ")
             self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
+            self.btn_record.setEnabled(False)
 
     def set_reconnecting_ui(self, attempt: int):
         """Estado intermedio: el watchdog está reintentando."""
@@ -87,3 +107,25 @@ class MainWindow(QMainWindow):
         self.btn_connect.setStyleSheet("background-color: #FD7E14; color: white;")
         self.lbl_connection_status.setText(f"🟠 Reconectando (intento {attempt}) ")
         self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
+        self.btn_record.setEnabled(False)
+
+    def set_recording_enabled(self, enabled: bool):
+        """Muestra u oculta el botón de grabación en la toolbar."""
+        self.btn_record.setVisible(enabled)
+        if not enabled:
+            self.lbl_record_timer.setVisible(False)
+
+    def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
+        """Actualiza el estado visual del botón de grabación y el timer."""
+        if active:
+            self.btn_record.setText(" ■ Detener")
+            self.btn_record.setToolTip("Detener grabación en OBS")
+            self.btn_record.setStyleSheet(self._record_style_active)
+            self.lbl_record_timer.setText(f"⏺ {timecode} ")
+            self.lbl_record_timer.setVisible(True)
+        else:
+            self.btn_record.setText(" ● Grabar")
+            self.btn_record.setToolTip("Iniciar grabación en OBS")
+            self.btn_record.setStyleSheet(self._record_style_idle)
+            self.lbl_record_timer.setVisible(False)
+            self.lbl_record_timer.setText("")

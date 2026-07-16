@@ -836,6 +836,7 @@ class SceneController:
             return
 
         self.active_scene_name = scene["name"]
+        log.info("Preparando rotación a %r (len=%d)", scene["name"], len(scene["name"]))
 
         cal_scene_name = self.settings_model.get_settings().get("cal_scene")
         if scene["name"] == cal_scene_name:

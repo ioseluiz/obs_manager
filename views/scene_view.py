@@ -1,3 +1,6 @@
+import logging
+import unicodedata
+
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QPushButton, QSpinBox,
                              QLabel, QHeaderView, QGroupBox, QSlider)
@@ -5,7 +8,21 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QBrush, QColor, QIcon, QPixmap
 from views.schedule_widget import format_schedule_summary
 
+log = logging.getLogger(__name__)
+
 ACTIVE_ROW_BG = QColor("#CCE5FF")  # azul claro, alta legibilidad sobre texto oscuro
+
+
+def _norm_scene_name(s):
+    """Normaliza para comparar nombres de escena: NFC + strip.
+
+    NFC evita falsos negativos si un nombre lleva diacríticos combinantes
+    (p. ej. 'N' + U+0303 vs 'Ñ' U+00D1). El strip cubre whitespace en
+    extremos que podría filtrarse en algún flujo de guardado.
+    """
+    if not s:
+        return ""
+    return unicodedata.normalize("NFC", str(s)).strip()
 
 CSS_PLACEHOLDER = (
     "/* CSS opcional inyectado en la página (dashboards, etc.) */\n"
@@ -295,14 +312,27 @@ class SceneView(QWidget):
     def _apply_active_highlight(self):
         default_brush = QBrush()
         active_brush = QBrush(ACTIVE_ROW_BG)
+        target = _norm_scene_name(self._active_scene_name)
+        matched = False
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, 2)
             if not name_item:
                 continue
-            is_active = (self._active_scene_name is not None
-                         and name_item.text() == self._active_scene_name)
+            is_active = bool(target) and _norm_scene_name(name_item.text()) == target
+            if is_active:
+                matched = True
             brush = active_brush if is_active else default_brush
             for col in range(self.table.columnCount()):
                 item = self.table.item(row, col)
                 if item:
                     item.setBackground(brush)
+        if target and not matched:
+            rows = [self.table.item(r, 2).text()
+                    for r in range(self.table.rowCount())
+                    if self.table.item(r, 2)]
+            log.warning(
+                "Highlight sin match. Buscado=%r (len=%d, norm=%r). Filas=%r",
+                self._active_scene_name,
+                len(self._active_scene_name or ""),
+                target, rows,
+            )

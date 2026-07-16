@@ -55,12 +55,15 @@ class OBSClient:
 
     # --- FUNCIONES DEL ROTADOR ---
     def change_scene(self, scene_name):
-        """Cambia la escena activa en OBS."""
-        if not self.client: return False
+        """Cambia la escena activa en OBS. Loguea el motivo si falla."""
+        if not self.client:
+            return False
         try:
             self.client.set_current_program_scene(scene_name)
             return True
-        except: return False
+        except Exception as e:
+            log.warning("change_scene falló para %r: %s", scene_name, e)
+            return False
 
     def create_scene_with_media(self, scene_name, media_input,
                                 video_loop=True, video_restart_on_activate=True,
@@ -389,17 +392,27 @@ class OBSClient:
             return False, f"Error creando input web: {str(e)}"
 
     # --- FUNCIONES DEL CALENDARIO ---
-    def move_scene_item(self, scene_name, source_name, x, y):
-        """Mueve un item a coordenadas X, Y. Respeta la escala."""
-        if not self.client: return False
+    def move_scene_item(self, scene_name, source_name, x, y, scale_pct=None):
+        """Mueve un item a coordenadas X, Y.
+
+        Si scale_pct viene, aplica scaleX = scaleY = scale_pct / 100. El
+        alignment=5 (top-left) que ya deja build_calendar_scene mantiene el
+        ancla al escalar, así que la posición no salta.
+        """
+        if not self.client:
+            return False
         try:
             response = self.client.get_scene_item_id(scene_name, source_name)
             item_id = response.scene_item_id
-            
+
             transform = {
                 "positionX": float(x),
-                "positionY": float(y)
+                "positionY": float(y),
             }
+            if scale_pct is not None:
+                s = float(scale_pct) / 100.0
+                transform["scaleX"] = s
+                transform["scaleY"] = s
             self.client.set_scene_item_transform(scene_name, item_id, transform)
             return True
         except Exception as e:
@@ -439,6 +452,54 @@ class OBSClient:
             })
             
             return True, "Escena construida con éxito."
-            
+
         except Exception as e:
             return False, f"Error: {str(e)}"
+
+    # --- GRABACIÓN ---
+    def start_recording(self):
+        """Inicia la grabación en OBS. Devuelve (ok, msg)."""
+        if not self.client:
+            return False, "OBS no está conectado."
+        try:
+            self.client.start_record()
+            return True, "Grabación iniciada."
+        except Exception as e:
+            log.warning("start_recording falló: %s", e)
+            return False, str(e)
+
+    def stop_recording(self):
+        """Detiene la grabación. Devuelve (ok, output_path_or_error).
+
+        Si OBS entrega output_path, se devuelve como mensaje para que la UI
+        pueda mostrarlo y ofrecer 'Abrir carpeta'.
+        """
+        if not self.client:
+            return False, "OBS no está conectado."
+        try:
+            resp = self.client.stop_record()
+            output_path = getattr(resp, "output_path", "") or ""
+            return True, output_path
+        except Exception as e:
+            log.warning("stop_recording falló: %s", e)
+            return False, str(e)
+
+    def get_recording_status(self):
+        """Devuelve dict con estado de grabación o None si OBS no responde.
+
+        Claves: active (bool), paused (bool), timecode (str "HH:MM:SS.mmm"),
+        duration_ms (int).
+        """
+        if not self.client:
+            return None
+        try:
+            resp = self.client.get_record_status()
+            return {
+                "active": bool(getattr(resp, "output_active", False)),
+                "paused": bool(getattr(resp, "output_paused", False)),
+                "timecode": getattr(resp, "output_timecode", "00:00:00.000") or "00:00:00.000",
+                "duration_ms": int(getattr(resp, "output_duration", 0) or 0),
+            }
+        except Exception as e:
+            log.debug("get_recording_status falló: %s", e)
+            return None

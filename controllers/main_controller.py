@@ -22,8 +22,11 @@ from controllers.countdown_controller import CountdownController
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker
 
 import logging
+import os
+import subprocess
 import sys
 from datetime import datetime
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMessageBox, QDialog, QFileDialog
 
 log = logging.getLogger(__name__)
@@ -35,23 +38,29 @@ class MainController:
         self.main_window = MainWindow()
         
         # 1. Iniciar Módulo de Calendario PRIMERO (porque SceneController lo va a necesitar)
+        self.scene_model = SceneModel()  # se necesita antes para pasarlo al CalendarController
         self.calendar_model = CalendarModel()
         current_settings = self.settings_model.get_settings()
         self.calendar_view = CalendarView(current_settings)
-        self.calendar_controller = CalendarController(self.calendar_view, self.calendar_model, self.settings_model, self.obs_client)
+        self.calendar_controller = CalendarController(
+            self.calendar_view, self.calendar_model, self.settings_model, self.obs_client,
+            scene_model=self.scene_model,
+        )
         self.main_window.tabs.addTab(self.calendar_view, "Calendario de Cumpleaños")
 
         # 2. Iniciar Módulo de Escenas y pasarle el controlador del calendario y el de settings
-        self.scene_model = SceneModel()
         self.scene_view = SceneView()
         self.scene_controller = SceneController(
-            self.scene_view, 
-            self.scene_model, 
-            self.obs_client, 
-            self.settings_model, 
+            self.scene_view,
+            self.scene_model,
+            self.obs_client,
+            self.settings_model,
             self.calendar_controller
         )
         self.main_window.tabs.addTab(self.scene_view, "Rotador de Escenas")
+
+        # Enlazar callback: cuando el calendario construye una escena, refrescar la tabla del rotador.
+        self.calendar_controller.on_scene_created = self.scene_controller.refresh_table
 
 
         # 3. Iniciar Módulo de Contadores
@@ -74,6 +83,13 @@ class MainController:
         # Estado para pausar/reanudar rotador ante caídas
         self._rotator_was_running = False
 
+        # Estado de grabación (in-memory, no persiste entre sesiones)
+        self._recording_enabled = False
+        self._is_recording = False
+        self._record_timer = QTimer()
+        self._record_timer.setInterval(1000)
+        self._record_timer.timeout.connect(self._poll_recording_status)
+
         self._connect_signals()
 
     def _connect_signals(self):
@@ -81,10 +97,14 @@ class MainController:
         self.main_window.btn_connect.clicked.connect(self.connect_to_obs)
         self.main_window.btn_export.clicked.connect(self.export_scenes)
         self.main_window.btn_import.clicked.connect(self.import_scenes)
+        self.main_window.btn_record.clicked.connect(self.toggle_recording)
 
     def open_settings(self):
         current_settings = self.settings_model.get_settings()
-        dialog = SettingsDialog(current_settings, self.main_window)
+        dialog = SettingsDialog(
+            current_settings, self.main_window,
+            recording_enabled=self._recording_enabled,
+        )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
@@ -97,7 +117,18 @@ class MainController:
                 new_settings["obs_exe_path"],
                 new_settings["obs_autolaunch"]
             )
+            self._apply_recording_enabled(new_settings["recording_enabled"])
             self.connect_to_obs()
+
+    def _apply_recording_enabled(self, enabled):
+        if enabled == self._recording_enabled:
+            return
+        # Si se apaga mientras grabamos, detenemos limpiamente (muestra el dialog con el path).
+        if not enabled and self._is_recording:
+            log.info("Grabación deshabilitada desde Ajustes; deteniendo grabación en curso.")
+            self.toggle_recording()
+        self._recording_enabled = enabled
+        self.main_window.set_recording_enabled(enabled)
 
     def connect_to_obs(self):
         self.main_window.statusBar().showMessage("Conectando a OBS...")
@@ -122,11 +153,31 @@ class MainController:
         self.main_window.set_connection_ui(True)
         self.watchdog.mark_connected()
         log.info("Conexión inicial a OBS establecida.")
+        # Sincronizar estado de grabación con OBS (por si ya estaba grabando)
+        self._sync_recording_state()
+
+    def _sync_recording_state(self):
+        # Mientras la grabación esté deshabilitada, la app no controla ni refleja
+        # el estado de OBS. El usuario debe activarla en Ajustes.
+        if not self._recording_enabled:
+            return
+        status = self.obs_client.get_recording_status()
+        if status and status["active"]:
+            self._is_recording = True
+            self.main_window.set_recording_ui(True, status["timecode"][:8])
+            if not self._record_timer.isActive():
+                self._record_timer.start()
+        else:
+            self._is_recording = False
+            self.main_window.set_recording_ui(False)
+            self._record_timer.stop()
 
     def _on_connection_lost(self, message):
         log.warning("Caída de OBS detectada por watchdog: %s", message)
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
         self.main_window.set_connection_ui(False)
+        # Detener el polling del timer local; el estado real se re-sincroniza al reconectar.
+        self._record_timer.stop()
         # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
         if self.scene_controller.timer.isActive() or self.scene_controller.is_paused:
             self._rotator_was_running = True
@@ -141,6 +192,8 @@ class MainController:
         log.info("Conexión con OBS restaurada.")
         self.main_window.statusBar().showMessage("Reconectado a OBS", 5000)
         self.main_window.set_connection_ui(True)
+        # Re-sincronizar estado de grabación (OBS puede haber seguido grabando)
+        self._sync_recording_state()
         # Reanudar rotador si estaba activo antes de la caída
         if self._rotator_was_running:
             self._rotator_was_running = False
@@ -357,12 +410,83 @@ class MainController:
             )
         return ok, msg
 
+    # --- GRABACIÓN ---
+    def toggle_recording(self):
+        if not self.obs_client.client:
+            QMessageBox.warning(self.main_window, "Sin conexión",
+                                "Conecta a OBS antes de grabar.")
+            return
+
+        if self._is_recording:
+            ok, msg = self.obs_client.stop_recording()
+            if not ok:
+                QMessageBox.critical(self.main_window, "Error al detener grabación", msg)
+                return
+            self._is_recording = False
+            self._record_timer.stop()
+            self.main_window.set_recording_ui(False)
+            self.main_window.statusBar().showMessage("Grabación detenida", 5000)
+            log.info("Grabación detenida. Archivo: %s", msg or "(sin path)")
+            if msg:
+                self._show_recording_saved_dialog(msg)
+        else:
+            ok, msg = self.obs_client.start_recording()
+            if not ok:
+                QMessageBox.critical(self.main_window, "Error al iniciar grabación", msg)
+                return
+            self._is_recording = True
+            self.main_window.set_recording_ui(True, "00:00:00")
+            self._record_timer.start()
+            self.main_window.statusBar().showMessage("Grabación iniciada", 5000)
+            log.info("Grabación iniciada.")
+
+    def _poll_recording_status(self):
+        status = self.obs_client.get_recording_status()
+        if status is None:
+            # OBS no responde; el watchdog se encarga. Paramos el polling local.
+            self._record_timer.stop()
+            return
+        if not status["active"]:
+            # OBS detuvo la grabación por otro medio (UI de OBS, hotkey, error…).
+            self._is_recording = False
+            self._record_timer.stop()
+            self.main_window.set_recording_ui(False)
+            return
+        self.main_window.set_recording_ui(True, status["timecode"][:8])
+
+    def _show_recording_saved_dialog(self, path):
+        box = QMessageBox(self.main_window)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Grabación guardada")
+        box.setText(f"Grabación guardada en:\n{path}")
+        btn_open = box.addButton("Abrir carpeta", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is btn_open:
+            self._open_in_explorer(path)
+
+    def _open_in_explorer(self, path):
+        if sys.platform != "win32":
+            return
+        try:
+            subprocess.Popen(["explorer", f"/select,{path}"])
+        except Exception as e:
+            log.warning("No se pudo abrir el explorador con /select: %s", e)
+            try:
+                os.startfile(os.path.dirname(path))
+            except Exception as e2:
+                log.error("Fallback os.startfile también falló: %s", e2)
+
     def show_main_window(self):
         self.main_window.show()
         self.connect_to_obs()
 
     def shutdown(self):
         """Detiene threads antes de cerrar la app."""
+        try:
+            self._record_timer.stop()
+        except Exception as e:
+            log.warning("Error deteniendo record_timer: %s", e)
         try:
             self.watchdog.stop()
             self.watchdog.wait(2000)

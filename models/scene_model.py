@@ -163,6 +163,20 @@ class SceneModel:
             return None
         return _row_to_dict(r)
 
+    def get_scene_by_name(self, name):
+        """Obtiene una escena por su nombre exacto. None si no existe."""
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {_SELECT_COLUMNS} FROM secuencias WHERE nombre_escena = ?",
+            (name,),
+        )
+        r = cursor.fetchone()
+        conn.close()
+        if not r:
+            return None
+        return _row_to_dict(r)
+
     def update_scene(self, scene_id, name, duration, tipo, contenido,
                      ancho, alto, fps, reload_on_activate, keep_session,
                      custom_css=None, zoom_pct=100, pan_x=0, pan_y=0,
