@@ -22,8 +22,6 @@ from controllers.countdown_controller import CountdownController
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker
 
 import logging
-import os
-import subprocess
 import sys
 from datetime import datetime
 from PyQt6.QtCore import QTimer
@@ -83,8 +81,8 @@ class MainController:
         # Estado para pausar/reanudar rotador ante caídas
         self._rotator_was_running = False
 
-        # Estado de grabación (in-memory, no persiste entre sesiones)
-        self._recording_enabled = False
+        # Estado de transmisión (el botón dispara Start/StopRecord de OBS,
+        # que con Custom Output FFmpeg + URL UDP transmite sin generar archivo).
         self._is_recording = False
         self._record_timer = QTimer()
         self._record_timer.setInterval(1000)
@@ -101,10 +99,7 @@ class MainController:
 
     def open_settings(self):
         current_settings = self.settings_model.get_settings()
-        dialog = SettingsDialog(
-            current_settings, self.main_window,
-            recording_enabled=self._recording_enabled,
-        )
+        dialog = SettingsDialog(current_settings, self.main_window)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
@@ -117,18 +112,7 @@ class MainController:
                 new_settings["obs_exe_path"],
                 new_settings["obs_autolaunch"]
             )
-            self._apply_recording_enabled(new_settings["recording_enabled"])
             self.connect_to_obs()
-
-    def _apply_recording_enabled(self, enabled):
-        if enabled == self._recording_enabled:
-            return
-        # Si se apaga mientras grabamos, detenemos limpiamente (muestra el dialog con el path).
-        if not enabled and self._is_recording:
-            log.info("Grabación deshabilitada desde Ajustes; deteniendo grabación en curso.")
-            self.toggle_recording()
-        self._recording_enabled = enabled
-        self.main_window.set_recording_enabled(enabled)
 
     def connect_to_obs(self):
         self.main_window.statusBar().showMessage("Conectando a OBS...")
@@ -157,10 +141,6 @@ class MainController:
         self._sync_recording_state()
 
     def _sync_recording_state(self):
-        # Mientras la grabación esté deshabilitada, la app no controla ni refleja
-        # el estado de OBS. El usuario debe activarla en Ajustes.
-        if not self._recording_enabled:
-            return
         status = self.obs_client.get_recording_status()
         if status and status["active"]:
             self._is_recording = True
@@ -410,35 +390,35 @@ class MainController:
             )
         return ok, msg
 
-    # --- GRABACIÓN ---
+    # --- TRANSMISIÓN ---
+    # Nota: usamos Start/StopRecord de OBS. Con Custom Output FFmpeg + URL UDP
+    # este endpoint dispara el pipeline de transmisión sin generar archivo local.
     def toggle_recording(self):
         if not self.obs_client.client:
             QMessageBox.warning(self.main_window, "Sin conexión",
-                                "Conecta a OBS antes de grabar.")
+                                "Conecta a OBS antes de transmitir.")
             return
 
         if self._is_recording:
             ok, msg = self.obs_client.stop_recording()
             if not ok:
-                QMessageBox.critical(self.main_window, "Error al detener grabación", msg)
+                QMessageBox.critical(self.main_window, "Error al detener transmisión", msg)
                 return
             self._is_recording = False
             self._record_timer.stop()
             self.main_window.set_recording_ui(False)
-            self.main_window.statusBar().showMessage("Grabación detenida", 5000)
-            log.info("Grabación detenida. Archivo: %s", msg or "(sin path)")
-            if msg:
-                self._show_recording_saved_dialog(msg)
+            self.main_window.statusBar().showMessage("Transmisión detenida", 5000)
+            log.info("Transmisión detenida. output_path OBS=%r", msg)
         else:
             ok, msg = self.obs_client.start_recording()
             if not ok:
-                QMessageBox.critical(self.main_window, "Error al iniciar grabación", msg)
+                QMessageBox.critical(self.main_window, "Error al iniciar transmisión", msg)
                 return
             self._is_recording = True
             self.main_window.set_recording_ui(True, "00:00:00")
             self._record_timer.start()
-            self.main_window.statusBar().showMessage("Grabación iniciada", 5000)
-            log.info("Grabación iniciada.")
+            self.main_window.statusBar().showMessage("Transmisión iniciada", 5000)
+            log.info("Transmisión iniciada.")
 
     def _poll_recording_status(self):
         status = self.obs_client.get_recording_status()
@@ -447,35 +427,12 @@ class MainController:
             self._record_timer.stop()
             return
         if not status["active"]:
-            # OBS detuvo la grabación por otro medio (UI de OBS, hotkey, error…).
+            # OBS detuvo la transmisión por otro medio (UI de OBS, hotkey, error…).
             self._is_recording = False
             self._record_timer.stop()
             self.main_window.set_recording_ui(False)
             return
         self.main_window.set_recording_ui(True, status["timecode"][:8])
-
-    def _show_recording_saved_dialog(self, path):
-        box = QMessageBox(self.main_window)
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setWindowTitle("Grabación guardada")
-        box.setText(f"Grabación guardada en:\n{path}")
-        btn_open = box.addButton("Abrir carpeta", QMessageBox.ButtonRole.ActionRole)
-        box.addButton(QMessageBox.StandardButton.Close)
-        box.exec()
-        if box.clickedButton() is btn_open:
-            self._open_in_explorer(path)
-
-    def _open_in_explorer(self, path):
-        if sys.platform != "win32":
-            return
-        try:
-            subprocess.Popen(["explorer", f"/select,{path}"])
-        except Exception as e:
-            log.warning("No se pudo abrir el explorador con /select: %s", e)
-            try:
-                os.startfile(os.path.dirname(path))
-            except Exception as e2:
-                log.error("Fallback os.startfile también falló: %s", e2)
 
     def show_main_window(self):
         self.main_window.show()

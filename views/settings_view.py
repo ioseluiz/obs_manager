@@ -6,10 +6,10 @@ from core import obs_launcher
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_settings, parent=None, recording_enabled=False):
+    def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Conexión OBS")
-        self.setFixedSize(480, 440)
+        self.setFixedSize(480, 360)
 
         layout = QVBoxLayout(self)
 
@@ -54,21 +54,6 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(launch_group)
 
-        # --- Grabación (opt-in, sin persistencia) ---
-        rec_group = QGroupBox("Grabación")
-        rec_layout = QVBoxLayout(rec_group)
-        self.chk_recording = QCheckBox("Habilitar grabación a archivo")
-        self.chk_recording.setChecked(bool(recording_enabled))
-        rec_layout.addWidget(self.chk_recording)
-        rec_hint = QLabel(
-            "Se restablece al abrir la app. La grabación se hace en el disco "
-            "configurado en OBS."
-        )
-        rec_hint.setStyleSheet("color: #6C757D; font-size: 11px;")
-        rec_hint.setWordWrap(True)
-        rec_layout.addWidget(rec_hint)
-        layout.addWidget(rec_group)
-
         # --- Botones inferiores ---
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar y Conectar")
@@ -110,5 +95,4 @@ class SettingsDialog(QDialog):
             "password": self.password_input.text(),
             "obs_exe_path": self.obs_exe_input.text().strip(),
             "obs_autolaunch": self.chk_autolaunch.isChecked(),
-            "recording_enabled": self.chk_recording.isChecked(),
         }

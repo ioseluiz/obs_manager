@@ -61,11 +61,11 @@ class MainWindow(QMainWindow):
 
         self.toolbar.addSeparator()
 
-        # Botón de Grabación (toggle) — oculto por defecto; se activa desde Ajustes
-        self.btn_record = QPushButton(" ● Grabar")
-        self.btn_record.setToolTip("Iniciar grabación en OBS")
+        # Botón de Transmisión (toggle) — dispara StartRecord/StopRecord de OBS,
+        # que en la config Custom Output FFmpeg + URL UDP transmite sin generar archivo.
+        self.btn_record = QPushButton(" 🔴 Transmitir")
+        self.btn_record.setToolTip("Iniciar salida en OBS (Custom Output FFmpeg → UDP)")
         self.btn_record.setEnabled(False)  # Se habilita al conectar
-        self.btn_record.setVisible(False)  # Se muestra solo si el usuario habilita grabación
         self._record_style_idle = "background-color: #6C757D; color: white;"
         self._record_style_active = "background-color: #DC3545; color: white;"
         self.btn_record.setStyleSheet(self._record_style_idle)
@@ -109,23 +109,17 @@ class MainWindow(QMainWindow):
         self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
         self.btn_record.setEnabled(False)
 
-    def set_recording_enabled(self, enabled: bool):
-        """Muestra u oculta el botón de grabación en la toolbar."""
-        self.btn_record.setVisible(enabled)
-        if not enabled:
-            self.lbl_record_timer.setVisible(False)
-
     def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
-        """Actualiza el estado visual del botón de grabación y el timer."""
+        """Actualiza el estado visual del botón de transmisión y el timer."""
         if active:
-            self.btn_record.setText(" ■ Detener")
-            self.btn_record.setToolTip("Detener grabación en OBS")
+            self.btn_record.setText(" ⏹ Detener")
+            self.btn_record.setToolTip("Detener salida en OBS")
             self.btn_record.setStyleSheet(self._record_style_active)
-            self.lbl_record_timer.setText(f"⏺ {timecode} ")
+            self.lbl_record_timer.setText(f"🔴 EN VIVO {timecode} ")
             self.lbl_record_timer.setVisible(True)
         else:
-            self.btn_record.setText(" ● Grabar")
-            self.btn_record.setToolTip("Iniciar grabación en OBS")
+            self.btn_record.setText(" 🔴 Transmitir")
+            self.btn_record.setToolTip("Iniciar salida en OBS (Custom Output FFmpeg → UDP)")
             self.btn_record.setStyleSheet(self._record_style_idle)
             self.lbl_record_timer.setVisible(False)
             self.lbl_record_timer.setText("")
