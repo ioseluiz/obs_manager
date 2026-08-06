@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
+      # Release final: v1.2.3
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      # Prerelease: v1.2.3-test, v1.2.3-rc.1, v1.2.3-beta.2, etc.
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: write
@@ -25,62 +28,91 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Extract version from tag
+      - name: Extract version info from tag
         id: version
         shell: pwsh
         run: |
-          $ver = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          Write-Host "Building version: $ver"
+          # tag = 'v1.2.3' o 'v1.2.3-test'
+          $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $ver = $tag -replace '^v', ''                    # '1.2.3' o '1.2.3-test'
+          $verNumeric = ($ver -split '-')[0]               # '1.2.3' siempre (para Inno VersionInfoVersion)
+          $isPrerelease = if ($ver -match '-') { 'true' } else { 'false' }
 
-      - name: Build executable with PyInstaller (onefile portable)
+          "VERSION=$ver"                     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "VERSION_NUMERIC=$verNumeric"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "IS_PRERELEASE=$isPrerelease"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          Write-Host "Tag: $tag"
+          Write-Host "Version: $ver (numeric: $verNumeric, prerelease: $isPrerelease)"
+
+      - name: Build application with PyInstaller (--onedir via spec)
         shell: pwsh
         run: |
-          pyinstaller `
-            --onefile `
-            --windowed `
-            --icon=app_icon.ico `
-            --add-data "app_icon.ico;." `
-            --name=OBS_Automation_Manager `
-            main.py
+          pyinstaller OBS_Automation_Manager.spec
 
-      - name: Verify build output
+      - name: Verify PyInstaller output
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist\OBS_Automation_Manager.exe")) {
-            Write-Error "Build failed: dist\OBS_Automation_Manager.exe not found"
+          $exe = "dist\OBS_Automation_Manager\OBS_Automation_Manager.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "Build failed: $exe not found"
             exit 1
           }
-          $size = (Get-Item "dist\OBS_Automation_Manager.exe").Length / 1MB
-          Write-Host "Executable size: $([math]::Round($size, 2)) MB"
+          $count = (Get-ChildItem "dist\OBS_Automation_Manager" -Recurse -File | Measure-Object).Count
+          Write-Host "PyInstaller output OK ($count archivos)"
 
-      - name: Rename executable with version
+      - name: Compile installer with Inno Setup
         shell: pwsh
         run: |
-          $ver = "${{ steps.version.outputs.VERSION }}"
-          Rename-Item "dist\OBS_Automation_Manager.exe" "OBS_Automation_Manager_v$ver.exe"
-          Write-Host "Renamed to OBS_Automation_Manager_v$ver.exe"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Error "Inno Setup 6 no encontrado en $iscc"
+            exit 1
+          }
+          & $iscc `
+            "/DMyAppVersion=${{ steps.version.outputs.VERSION }}" `
+            "/DMyAppVersionNumeric=${{ steps.version.outputs.VERSION_NUMERIC }}" `
+            installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "ISCC.exe fallo con exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      - name: Verify installer output
+        shell: pwsh
+        run: |
+          $installer = "Output\OBS_Automation_Manager_Setup_v${{ steps.version.outputs.VERSION }}.exe"
+          if (-not (Test-Path $installer)) {
+            Write-Error "Instalador no generado en $installer"
+            exit 1
+          }
+          $size = (Get-Item $installer).Length / 1MB
+          Write-Host "Instalador OK: $installer ($([math]::Round($size, 2)) MB)"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/OBS_Automation_Manager_v${{ steps.version.outputs.VERSION }}.exe
+          files: Output/OBS_Automation_Manager_Setup_v${{ steps.version.outputs.VERSION }}.exe
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.version.outputs.IS_PRERELEASE }}
           body: |
             ## OBS Automation Manager ${{ steps.version.outputs.VERSION }}
 
-            Aplicación portable de escritorio para automatización de transmisiones OBS.
+            Instalador de escritorio para automatización de transmisiones OBS.
 
             ### 📦 Instalación
-            1. Descarga `OBS_Automation_Manager_v${{ steps.version.outputs.VERSION }}.exe` de los assets abajo.
-            2. Colócalo en la carpeta de tu preferencia.
-            3. Crea un archivo `.env` en la misma carpeta con las credenciales de OBS WebSocket (ver README).
-            4. Ejecuta doble-click.
+            1. Descarga `OBS_Automation_Manager_Setup_v${{ steps.version.outputs.VERSION }}.exe` de los assets abajo.
+            2. Doble-click y sigue el asistente (no requiere permisos de administrador).
+            3. La app se instala en `%LOCALAPPDATA%\Programs\OBS_Automation_Manager\`.
+            4. Al primer arranque se crea `%LOCALAPPDATA%\OBS_Automation_Manager\.env`. Configura las credenciales de OBS desde ⚙ Ajustes.
 
             ### ⚙️ Requisitos
-            - Windows 10/11
+            - Windows 10/11 (x64)
             - OBS Studio 28.0+ con WebSocket habilitado
+
+            ### 🔄 Actualización
+            Ejecuta el instalador de la nueva versión sobre la instalación existente.
+            La base de datos, logs y configuración en `%LOCALAPPDATA%\OBS_Automation_Manager\` se preservan.
 
             Ver [README](https://github.com/${{ github.repository }}/blob/main/README.md) para documentación completa.

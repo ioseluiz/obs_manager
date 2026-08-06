@@ -37,10 +37,11 @@ ENV/
 *.sqlite3
 
 # ==========================================
-# Compilación y Ejecutables (PyInstaller)
+# Compilación y Ejecutables (PyInstaller / Inno Setup)
 # ==========================================
 build/
 dist/
+Output/
 *.spec.bak
 
 # ==========================================
@@ -60,3 +61,8 @@ Desktop.ini
 .idea/
 *.swp
 *.swo
+
+# ==========================================
+# Recursos locales de referencia (calendarios, scripts Lua)
+# ==========================================
+calendars/
