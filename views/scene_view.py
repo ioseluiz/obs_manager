@@ -3,7 +3,7 @@ import unicodedata
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QPushButton, QSpinBox,
-                             QLabel, QHeaderView, QGroupBox, QSlider)
+                             QLabel, QHeaderView, QGroupBox, QSlider, QSizePolicy)
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QBrush, QColor, QIcon, QPixmap
 from views.schedule_widget import format_schedule_summary
@@ -11,6 +11,7 @@ from views.schedule_widget import format_schedule_summary
 log = logging.getLogger(__name__)
 
 ACTIVE_ROW_BG = QColor("#CCE5FF")  # azul claro, alta legibilidad sobre texto oscuro
+BUTTON_MIN_HEIGHT = 32  # Evita compresión vertical cuando la ventana es baja
 
 
 def _norm_scene_name(s):
@@ -74,6 +75,12 @@ class SceneView(QWidget):
         self.lbl_date.setStyleSheet("font-weight: bold; color: #495057; font-size: 15px;")
         self.lbl_date.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+        # Fijar altura mínima para que no se compriman en ventanas bajas
+        for b in (self.btn_start, self.btn_prev, self.btn_pause, self.btn_next,
+                  self.btn_stop, self.btn_refresh_previews):
+            b.setMinimumHeight(BUTTON_MIN_HEIGHT)
+            b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
         controls_layout.addWidget(self.btn_start)
         controls_layout.addWidget(self.btn_prev)
         controls_layout.addWidget(self.btn_pause)
@@ -117,6 +124,11 @@ class SceneView(QWidget):
         self.btn_move_down.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
         self.btn_delete = QPushButton("🗑 Eliminar Seleccionada")
         self.btn_delete.setStyleSheet("background-color: #DC3545; color: white;")
+        for b in (self.btn_add, self.btn_edit, self.btn_duplicate,
+                  self.btn_move_up, self.btn_move_down, self.btn_delete):
+            b.setMinimumHeight(BUTTON_MIN_HEIGHT)
+            b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
         action_row.addWidget(self.btn_add)
         action_row.addWidget(self.btn_edit)
         action_row.addWidget(self.btn_duplicate)
@@ -129,9 +141,19 @@ class SceneView(QWidget):
         self.layout.addWidget(self._build_live_panel(), 0)
 
     def _build_live_panel(self):
-        """Panel de zoom/pan en vivo. Actúa sobre la escena seleccionada en la tabla."""
+        """Panel de zoom/pan en vivo. Actúa sobre la escena seleccionada en la tabla.
+
+        Colapsable: click en el título/checkbox del QGroupBox para plegar y
+        liberar ~130px verticales — útil en pantallas bajas.
+        """
         group = QGroupBox("Ajuste en vivo (selecciona una escena y arrastra los sliders)")
+        group.setCheckable(True)
+        group.setChecked(True)
         group.setMaximumHeight(160)
+        # Al plegar/desplegar, mostramos u ocultamos el contenido y limpiamos
+        # el maximumHeight para que el layout compacte bien.
+        group.toggled.connect(self._on_live_group_toggled)
+        self._live_group = group
         outer = QVBoxLayout()
         outer.setContentsMargins(8, 4, 8, 4)
         outer.setSpacing(2)
@@ -198,6 +220,16 @@ class SceneView(QWidget):
         for w in self._live_widgets:
             w.setEnabled(enabled)
         self.btn_live_reset.setEnabled(enabled)
+
+    def _on_live_group_toggled(self, checked):
+        """Colapsa/expande el panel de Ajuste en vivo, ajustando maximumHeight
+        para que Qt no reserve los 160px cuando está plegado."""
+        for w in self._live_group.findChildren(QWidget):
+            # No tocar el QGroupBox mismo, solo sus hijos internos
+            if w is self._live_group:
+                continue
+            w.setVisible(checked)
+        self._live_group.setMaximumHeight(160 if checked else 30)
 
     def set_live_values(self, zoom_pct, pan_x, pan_y, target_label=None):
         """Carga valores en el panel sin disparar señales (para selección de fila)."""

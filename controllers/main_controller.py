@@ -135,6 +135,9 @@ class MainController:
         self.main_window.btn_connect.setEnabled(True)
         # Llamamos a la función que diseñamos para actualizar toda la UI visual
         self.main_window.set_connection_ui(True)
+        self.main_window.set_canvas_size(
+            self.obs_client.canvas_width, self.obs_client.canvas_height
+        )
         self.watchdog.mark_connected()
         log.info("Conexión inicial a OBS establecida.")
         # Sincronizar estado de grabación con OBS (por si ya estaba grabando)
@@ -156,6 +159,7 @@ class MainController:
         log.warning("Caída de OBS detectada por watchdog: %s", message)
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
         self.main_window.set_connection_ui(False)
+        self.main_window.clear_canvas_size()
         # Detener el polling del timer local; el estado real se re-sincroniza al reconectar.
         self._record_timer.stop()
         # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
@@ -172,6 +176,9 @@ class MainController:
         log.info("Conexión con OBS restaurada.")
         self.main_window.statusBar().showMessage("Reconectado a OBS", 5000)
         self.main_window.set_connection_ui(True)
+        self.main_window.set_canvas_size(
+            self.obs_client.canvas_width, self.obs_client.canvas_height
+        )
         # Re-sincronizar estado de grabación (OBS puede haber seguido grabando)
         self._sync_recording_state()
         # Reanudar rotador si estaba activo antes de la caída

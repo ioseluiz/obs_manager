@@ -1,6 +1,8 @@
 import obsws_python as obs
 import os
+import base64
 import logging
+import threading
 from PIL import Image
 
 log = logging.getLogger(__name__)
@@ -22,6 +24,10 @@ class OBSClient:
         self.client = None
         self.canvas_width = 1920
         self.canvas_height = 1080
+        # Lock para serializar accesos al ReqClient (websocket-client no es
+        # thread-safe). Cualquier método llamado desde múltiples threads
+        # (worker de preview, timer del rotador, UI) debe usarlo.
+        self._client_lock = threading.RLock()
 
     def connect(self, host="localhost", port=4455, password=""):
         # Cerrar cliente previo para evitar sockets huérfanos que rompen el handshake
@@ -55,15 +61,22 @@ class OBSClient:
 
     # --- FUNCIONES DEL ROTADOR ---
     def change_scene(self, scene_name):
-        """Cambia la escena activa en OBS. Loguea el motivo si falla."""
+        """Cambia la escena activa en OBS. Loguea el motivo si falla.
+
+        Serializado bajo `_client_lock` (llamado desde timer del rotador en
+        UI thread; puede coincidir con el worker de preview).
+        """
         if not self.client:
             return False
-        try:
-            self.client.set_current_program_scene(scene_name)
-            return True
-        except Exception as e:
-            log.warning("change_scene falló para %r: %s", scene_name, e)
-            return False
+        with self._client_lock:
+            if not self.client:
+                return False
+            try:
+                self.client.set_current_program_scene(scene_name)
+                return True
+            except Exception as e:
+                log.warning("change_scene falló para %r: %s", scene_name, e)
+                return False
 
     def create_scene_with_media(self, scene_name, media_input,
                                 video_loop=True, video_restart_on_activate=True,
@@ -277,6 +290,74 @@ class OBSClient:
         except Exception as e:
             return False, f"Error creando input: {str(e)}"
 
+    def get_scene_screenshot_bytes(self, scene_name, width=960, height=540,
+                                    image_format="jpg", quality=75):
+        """Devuelve el screenshot compuesto de una escena como bytes JPEG/PNG.
+
+        Read-only: no afecta el output live ni la rotación. OBS renderiza la
+        escena (activa o no) en background y devuelve el compuesto ya con los
+        transforms aplicados — exactamente lo que necesitamos para el preview
+        de composición.
+
+        Serializado bajo `_client_lock` (llamado desde thread del preview
+        worker; puede coincidir con set_source_transform del UI thread).
+
+        Devuelve bytes o None si falla / no hay conexión.
+        """
+        if not self.client:
+            return None
+        with self._client_lock:
+            if not self.client:
+                return None
+            try:
+                resp = self.client.get_source_screenshot(
+                    scene_name, image_format, int(width), int(height), int(quality)
+                )
+                img_data = getattr(resp, "image_data", None)
+                if not img_data:
+                    return None
+                if img_data.startswith("data:"):
+                    img_data = img_data.split(",", 1)[1]
+                return base64.b64decode(img_data)
+            except Exception as e:
+                log.debug("Screenshot de escena '%s' falló: %s", scene_name, e)
+                return None
+
+    def get_scene_item_transform(self, scene_name, source_name):
+        """Devuelve el transform actual del item o None si falla.
+
+        Serializado bajo `_client_lock`.
+        """
+        if not self.client:
+            return None
+        with self._client_lock:
+            if not self.client:
+                return None
+            try:
+                id_resp = self.client.get_scene_item_id(scene_name, source_name)
+                item_id = id_resp.scene_item_id
+                tf_resp = self.client.get_scene_item_transform(scene_name, item_id)
+                tf = getattr(tf_resp, "scene_item_transform", None)
+                if tf is None:
+                    return None
+                if isinstance(tf, dict):
+                    return tf
+                return {
+                    "scaleX": getattr(tf, "scaleX", 1.0),
+                    "scaleY": getattr(tf, "scaleY", 1.0),
+                    "sourceWidth": getattr(tf, "sourceWidth", 0),
+                    "sourceHeight": getattr(tf, "sourceHeight", 0),
+                    "positionX": getattr(tf, "positionX", 0),
+                    "positionY": getattr(tf, "positionY", 0),
+                    "alignment": getattr(tf, "alignment", 0),
+                    "width": getattr(tf, "width", 0),
+                    "height": getattr(tf, "height", 0),
+                }
+            except Exception as e:
+                log.debug("get_scene_item_transform falló para '%s/%s': %s",
+                          scene_name, source_name, e)
+                return None
+
     def get_source_screenshot_base64(self, source_name, width=160, height=90):
         """Devuelve el screenshot del source como string base64 (data URI stripped) o None.
 
@@ -350,24 +431,31 @@ class OBSClient:
         - alignment=0 (centro): zoom mantiene el contenido centrado.
         - pan_x, pan_y: desplazamiento en píxeles desde el centro del canvas.
         - Preserva el estado interno del source (no destruye browser_source).
+
+        Serializado bajo `_client_lock` (se dispara desde UI thread por el
+        debounce del edit dialog; puede coincidir con screenshots del worker
+        de preview en otro thread).
         """
         if not self.client:
             return False, "OBS no está conectado."
-        try:
-            response = self.client.get_scene_item_id(scene_name, source_name)
-            item_id = response.scene_item_id
-            scale = float(zoom_pct) / 100.0
-            transform = {
-                "alignment": 0,
-                "scaleX": scale,
-                "scaleY": scale,
-                "positionX": float(self.canvas_width) / 2.0 + float(pan_x),
-                "positionY": float(self.canvas_height) / 2.0 + float(pan_y),
-            }
-            self.client.set_scene_item_transform(scene_name, item_id, transform)
-            return True, "Transform aplicado."
-        except Exception as e:
-            return False, f"Error aplicando transform: {str(e)}"
+        with self._client_lock:
+            if not self.client:
+                return False, "OBS no está conectado."
+            try:
+                response = self.client.get_scene_item_id(scene_name, source_name)
+                item_id = response.scene_item_id
+                scale = float(zoom_pct) / 100.0
+                transform = {
+                    "alignment": 0,
+                    "scaleX": scale,
+                    "scaleY": scale,
+                    "positionX": float(self.canvas_width) / 2.0 + float(pan_x),
+                    "positionY": float(self.canvas_height) / 2.0 + float(pan_y),
+                }
+                self.client.set_scene_item_transform(scene_name, item_id, transform)
+                return True, "Transform aplicado."
+            except Exception as e:
+                return False, f"Error aplicando transform: {str(e)}"
 
     def add_browser_input(self, scene_name, source_name, url, width, height, fps,
                           reload_on_activate, keep_session, custom_css=None):
@@ -420,19 +508,24 @@ class OBSClient:
             return False
 
     def build_calendar_scene(self, scene_name, bg_path, source_path, source_name, x_space):
-        """Construye el calendario con anclaje superior izquierdo y ancho auto-ajustado (275px)."""
+        """Construye el calendario con anclaje superior izquierdo y ancho auto-ajustado (275px).
+
+        Devuelve (ok, msg, scale_pct). scale_pct es el porcentaje que hay que
+        persistir en CAL_SCALE para que futuras llamadas a move_scene_item no
+        anulen el auto-scale aplicado aquí.
+        """
         if not self.client:
-            return False, "OBS no está conectado."
-            
+            return False, "OBS no está conectado.", None
+
         try:
             self.client.create_scene(scene_name)
-            
+
             clean_bg = os.path.abspath(bg_path).replace('\\', '/')
             clean_source = os.path.abspath(source_path).replace('\\', '/')
-            
+
             self.client.create_input(scene_name, f"{scene_name}_Fondo", "image_source", {"file": clean_bg}, True)
             self.client.create_input(scene_name, source_name, "image_source", {"file": clean_source}, True)
-            
+
             response = self.client.get_scene_item_id(scene_name, source_name)
             item_id = response.scene_item_id
 
@@ -441,20 +534,21 @@ class OBSClient:
 
             with Image.open(source_path) as img:
                 orig_width, _ = img.size
-            
-            # Forzamos los 275px que mediste
+
+            # Forzamos los 275px de ancho para el marcador
             target_width = 275.0
             auto_scale = target_width / float(orig_width)
-            
+            scale_pct = int(round(auto_scale * 100))
+
             self.client.set_scene_item_transform(scene_name, item_id, {
                 "scaleX": auto_scale,
-                "scaleY": auto_scale
+                "scaleY": auto_scale,
             })
-            
-            return True, "Escena construida con éxito."
+
+            return True, "Escena construida con éxito.", scale_pct
 
         except Exception as e:
-            return False, f"Error: {str(e)}"
+            return False, f"Error: {str(e)}", None
 
     # --- GRABACIÓN ---
     def start_recording(self):

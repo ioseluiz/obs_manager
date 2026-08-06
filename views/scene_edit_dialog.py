@@ -1,10 +1,25 @@
+import logging
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QSpinBox, QComboBox, QStackedWidget, QCheckBox,
                              QFormLayout, QPushButton, QWidget, QFileDialog,
-                             QDialogButtonBox, QPlainTextEdit, QMessageBox)
+                             QDialogButtonBox, QPlainTextEdit, QMessageBox,
+                             QScrollArea)
 from views.scene_view import CSS_PLACEHOLDER
 from views.schedule_widget import ScheduleWidget
+from views.scene_preview_widget import ScenePreviewWidget
+from views.scene_preview_dialog import ScenePreviewDialog
 from core.templates import get_template_names, get_template_defaults
+from core.preview_worker import PreviewThread
+
+log = logging.getLogger(__name__)
+
+
+def _source_name_for(tipo, scene_name):
+    """Convención del proyecto: file/image → _Contenido; url → _Web."""
+    if not scene_name:
+        return None
+    return f"{scene_name}_Web" if tipo == "url" else f"{scene_name}_Contenido"
 
 
 def empty_scene_defaults():
@@ -34,11 +49,70 @@ class SceneEditDialog(QDialog):
             scene = scene or empty_scene_defaults()
         self.setWindowTitle("Agregar Nueva Escena" if is_new
                             else f"Editar escena — {scene['name']}")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(720)
+        # Alto máximo sensato: 90% del alto de pantalla; el QScrollArea manejará overflow
+        self.resize(720, 620)
         self._scene = scene
         self._obs_client = obs_client
 
-        layout = QVBoxLayout(self)
+        # Estado del preview
+        self._preview_thread = None
+        self._floating_preview = None
+        self._original_transform = (
+            scene.get("zoom_pct") or 100,
+            scene.get("pan_x") or 0,
+            scene.get("pan_y") or 0,
+        )
+        self._transform_dirty = False
+        # Debounce timer para los sliders de zoom/pan (se dispara al soltar)
+        self._transform_debounce = QTimer(self)
+        self._transform_debounce.setSingleShot(True)
+        self._transform_debounce.setInterval(150)
+        self._transform_debounce.timeout.connect(self._apply_live_transform)
+
+        # Layout raíz: transform_row fijo arriba + scroll con contenido +
+        # botones OK/Cancel fijos abajo. Los sliders de zoom/pan quedan
+        # SIEMPRE visibles junto al preview, sin depender del scroll.
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(6)
+
+        # --- Zoom + pan (universal) — FIJO arriba del scroll ---
+        transform_row = QHBoxLayout()
+        self.input_zoom = QSpinBox()
+        self.input_zoom.setRange(10, 500)
+        self.input_zoom.setValue(scene.get("zoom_pct") or 100)
+        self.input_zoom.setSuffix(" %")
+
+        self.input_pan_x = QSpinBox()
+        self.input_pan_x.setRange(-4000, 4000)
+        self.input_pan_x.setValue(scene.get("pan_x") or 0)
+        self.input_pan_x.setSuffix(" px")
+
+        self.input_pan_y = QSpinBox()
+        self.input_pan_y.setRange(-4000, 4000)
+        self.input_pan_y.setValue(scene.get("pan_y") or 0)
+        self.input_pan_y.setSuffix(" px")
+
+        transform_row.addWidget(QLabel("Zoom:"))
+        transform_row.addWidget(self.input_zoom)
+        transform_row.addSpacing(12)
+        transform_row.addWidget(QLabel("Pan X:"))
+        transform_row.addWidget(self.input_pan_x)
+        transform_row.addSpacing(12)
+        transform_row.addWidget(QLabel("Pan Y:"))
+        transform_row.addWidget(self.input_pan_y)
+        transform_row.addStretch()
+        root.addLayout(transform_row)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
+        layout.setContentsMargins(4, 4, 4, 4)
+        scroll.setWidget(scroll_content)
+        root.addWidget(scroll, 1)
 
         if is_new:
             info = QLabel("Completa los campos y presiona Aceptar para crear la escena en OBS + BD.")
@@ -46,6 +120,35 @@ class SceneEditDialog(QDialog):
             info = QLabel("Recomendación: detén el rotador antes de editar la escena activa.")
         info.setStyleSheet("color: #6C757D; font-style: italic;")
         layout.addWidget(info)
+
+        # --- PREVIEW ---
+        # Solo en modo edición (escenas nuevas aún no existen en OBS).
+        self._preview_widget = None
+        if not is_new and obs_client is not None:
+            canvas_w = getattr(obs_client, "canvas_width", 1920) or 1920
+            canvas_h = getattr(obs_client, "canvas_height", 1080) or 1080
+            self._preview_widget = ScenePreviewWidget(
+                self, canvas_w=canvas_w, canvas_h=canvas_h, allow_detach=True
+            )
+            # Compacto por defecto (16:9 a ~240px alto): usable en laptops sin
+            # bloquear el resto del formulario. En modo flotante crece libre.
+            self._preview_widget.setMaximumHeight(260)
+            self._preview_widget.detach_requested.connect(self._on_detach_preview)
+            self._preview_widget.reattach_requested.connect(self._on_reattach_preview)
+            self._preview_widget.refresh_requested.connect(self._on_refresh_preview)
+            self._preview_widget.fps_changed.connect(self._on_fps_changed)
+            layout.addWidget(self._preview_widget)
+
+            # Placeholder que se muestra cuando el preview está en ventana flotante
+            self._detached_placeholder = QLabel(
+                "Preview en ventana flotante. Ciérrala o presiona ↙ para reintegrar."
+            )
+            self._detached_placeholder.setStyleSheet(
+                "color: #6C757D; font-style: italic; padding: 12px; "
+                "border: 1px dashed #999;"
+            )
+            self._detached_placeholder.setVisible(False)
+            layout.addWidget(self._detached_placeholder)
 
         form = QFormLayout()
 
@@ -94,40 +197,22 @@ class SceneEditDialog(QDialog):
         )
         layout.addWidget(self.schedule_widget)
 
-        # Zoom + pan (universal)
-        transform_row = QHBoxLayout()
-        self.input_zoom = QSpinBox()
-        self.input_zoom.setRange(10, 500)
-        self.input_zoom.setValue(scene.get("zoom_pct") or 100)
-        self.input_zoom.setSuffix(" %")
-
-        self.input_pan_x = QSpinBox()
-        self.input_pan_x.setRange(-4000, 4000)
-        self.input_pan_x.setValue(scene.get("pan_x") or 0)
-        self.input_pan_x.setSuffix(" px")
-
-        self.input_pan_y = QSpinBox()
-        self.input_pan_y.setRange(-4000, 4000)
-        self.input_pan_y.setValue(scene.get("pan_y") or 0)
-        self.input_pan_y.setSuffix(" px")
-
-        transform_row.addWidget(QLabel("Zoom:"))
-        transform_row.addWidget(self.input_zoom)
-        transform_row.addSpacing(12)
-        transform_row.addWidget(QLabel("Pan X:"))
-        transform_row.addWidget(self.input_pan_x)
-        transform_row.addSpacing(12)
-        transform_row.addWidget(QLabel("Pan Y:"))
-        transform_row.addWidget(self.input_pan_y)
-        transform_row.addStretch()
-        layout.addLayout(transform_row)
+        # Wiring de sliders → transform en vivo (solo si hay preview activo).
+        # Cada cambio arma el debounce; cuando el usuario deja de tocar 150ms,
+        # se aplica set_source_transform una sola vez. El preview lo verá en el
+        # próximo tick de polling (~330ms a 3 FPS).
+        if not is_new and obs_client is not None:
+            self.input_zoom.valueChanged.connect(self._schedule_transform)
+            self.input_pan_x.valueChanged.connect(self._schedule_transform)
+            self.input_pan_y.valueChanged.connect(self._schedule_transform)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        # Botones fuera del scroll area → siempre visibles al pie del diálogo
+        root.addWidget(buttons)
 
     def _build_file_panel(self, scene):
         panel = QWidget()
@@ -335,6 +420,160 @@ class SceneEditDialog(QDialog):
             self.input_video_volume.setValue(int(defaults["video_volume_pct"]))
         if "video_offset_seg" in defaults:
             self.input_video_offset.setValue(int(defaults["video_offset_seg"]))
+
+    # --------- CICLO DE VIDA DEL PREVIEW ---------
+
+    def _current_source_name(self):
+        """Source name basado en el scene original (no cambia al editar el nombre
+        dentro del diálogo — el source en OBS aún tiene el nombre viejo)."""
+        tipo = self._scene.get("tipo", "file")
+        return _source_name_for(tipo, self._scene.get("name"))
+
+    def _start_preview_thread(self):
+        if self._preview_thread is not None:
+            return
+        scene_name = self._scene.get("name")
+        source_name = self._current_source_name()
+        if not scene_name or not self._obs_client:
+            return
+        self._preview_thread = PreviewThread(
+            self._obs_client, scene_name, source_name,
+            fps=self._preview_widget.current_fps() if self._preview_widget else 3,
+        )
+        self._preview_thread.worker.frame_ready.connect(self._preview_widget.set_pixmap)
+        self._preview_thread.worker.transform_updated.connect(self._preview_widget.update_coverage)
+        self._preview_thread.start()
+
+    def _stop_preview_thread(self):
+        if self._preview_thread is None:
+            return
+        try:
+            self._preview_thread.stop()
+        except Exception as e:
+            log.debug("Error deteniendo preview thread: %s", e)
+        self._preview_thread = None
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._preview_widget is not None and self._preview_thread is None:
+            # Refrescar tamaño de canvas por si cambió (OBS puede haberse
+            # reconectado con settings distintos entre aperturas del diálogo).
+            if self._obs_client:
+                cw = getattr(self._obs_client, "canvas_width", 1920) or 1920
+                ch = getattr(self._obs_client, "canvas_height", 1080) or 1080
+                self._preview_widget.set_canvas_size(cw, ch)
+            self._preview_widget.set_placeholder("Cargando preview…")
+            self._start_preview_thread()
+
+    def closeEvent(self, event):
+        self._stop_preview_thread()
+        if self._floating_preview is not None:
+            try:
+                self._floating_preview.close()
+            except Exception:
+                pass
+            self._floating_preview = None
+        super().closeEvent(event)
+
+    def reject(self):
+        # Al cancelar, si tocamos el transform en vivo, revertir al original en OBS
+        if self._transform_dirty and self._obs_client and not self.is_new:
+            z0, px0, py0 = self._original_transform
+            source_name = self._current_source_name()
+            try:
+                self._obs_client.set_source_transform(
+                    self._scene.get("name"), source_name, z0, px0, py0
+                )
+            except Exception as e:
+                log.warning("No se pudo revertir transform tras Cancel: %s", e)
+        super().reject()
+
+    # --------- LIVE TRANSFORM ---------
+
+    def _schedule_transform(self, _value=None):
+        # Marcamos dirty y armamos el debounce
+        self._transform_dirty = True
+        self._transform_debounce.start()
+
+    def _apply_live_transform(self):
+        if not self._obs_client or self.is_new:
+            return
+        source_name = self._current_source_name()
+        if not source_name:
+            return
+        try:
+            self._obs_client.set_source_transform(
+                self._scene.get("name"), source_name,
+                self.input_zoom.value(),
+                self.input_pan_x.value(),
+                self.input_pan_y.value(),
+            )
+        except Exception as e:
+            log.debug("Live transform falló: %s", e)
+
+    # --------- FLOATING PREVIEW ---------
+
+    def _on_detach_preview(self):
+        """Abrir el preview en ventana flotante."""
+        if not self._preview_widget or self._floating_preview is not None:
+            return
+        # Snapshot del estado actual para replicarlo en la floating
+        state = {
+            "fps": self._preview_widget.spin_fps.value(),
+            "show_thirds": self._preview_widget.chk_thirds.isChecked(),
+            "show_safe": self._preview_widget.chk_safe.isChecked(),
+            "show_coverage": self._preview_widget.chk_coverage.isChecked(),
+        }
+        # Detener el preview del diálogo para no duplicar carga
+        self._stop_preview_thread()
+        self._preview_widget.setVisible(False)
+        self._detached_placeholder.setVisible(True)
+
+        cw = getattr(self._obs_client, "canvas_width", 1920) or 1920
+        ch = getattr(self._obs_client, "canvas_height", 1080) or 1080
+        self._floating_preview = ScenePreviewDialog(
+            self._obs_client,
+            self._scene.get("name"),
+            self._current_source_name(),
+            canvas_w=cw, canvas_h=ch,
+            available_scenes=None,  # scene switcher solo si se pasa lista
+            fps=state["fps"],
+            show_thirds=state["show_thirds"],
+            show_safe=state["show_safe"],
+            show_coverage=state["show_coverage"],
+            parent=self,
+        )
+        self._floating_preview.closed_by_user.connect(self._on_floating_closed)
+        self._floating_preview.show()
+
+    def _on_reattach_preview(self):
+        """Botón ↙ presionado dentro del widget (poco probable en este flujo)."""
+        if self._floating_preview:
+            self._floating_preview.close()
+
+    def _on_floating_closed(self):
+        # Recuperar estado del floating (por si el usuario cambió FPS/overlays)
+        if self._floating_preview:
+            state = self._floating_preview.current_state()
+            self._preview_widget.spin_fps.setValue(state["fps"])
+            self._preview_widget.chk_thirds.setChecked(state["show_thirds"])
+            self._preview_widget.chk_safe.setChecked(state["show_safe"])
+            self._preview_widget.chk_coverage.setChecked(state["show_coverage"])
+            self._floating_preview = None
+
+        self._detached_placeholder.setVisible(False)
+        self._preview_widget.setVisible(True)
+        self._preview_widget.set_placeholder("Reanudando preview…")
+        self._start_preview_thread()
+
+    def _on_refresh_preview(self):
+        """El polling ya está corriendo — el próximo tick trae el frame nuevo.
+        Este slot existe por si en el futuro añadimos un force-refresh manual."""
+        pass
+
+    def _on_fps_changed(self, fps):
+        if self._preview_thread:
+            self._preview_thread.set_fps(fps)
 
     def get_values(self):
         tipo = self.combo_type.currentData()
