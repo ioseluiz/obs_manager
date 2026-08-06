@@ -136,18 +136,34 @@ Los cambios posteriores (URL, ancho, alto, CSS, zoom, pan, refresh interval, mut
 |---|---|
 | Base de datos SQLite | `%LOCALAPPDATA%\OBS_Automation_Manager\obs_manager.db` |
 | Logs de la aplicación | `%LOCALAPPDATA%\OBS_Automation_Manager\logs\app.log` |
-| Configuración de OBS + calibración calendario | `.env` en la raíz del ejecutable |
+| Configuración de OBS + calibración calendario | `%LOCALAPPDATA%\OBS_Automation_Manager\.env` |
 
-## 📦 Generar Ejecutable (.exe)
+> **Nota de migración**: versiones antiguas guardaban `.env` junto al ejecutable. En el primer arranque tras actualizar, la app detecta ese `.env` legacy y lo mueve automáticamente a la nueva ubicación en `%LOCALAPPDATA%`.
 
-El proyecto incluye `build.bat` para compilar en un ejecutable de Windows sin necesidad de Python instalado.
+## 📦 Instalador de Windows
 
-**Requisito previo (solo la primera vez):**
+Cada tag `vX.Y.Z` pusheado a `main` dispara automáticamente el workflow `.github/workflows/release.yml` que:
+
+1. Compila la app con PyInstaller en modo `--onedir` (vía `OBS_Automation_Manager.spec`).
+2. Empaqueta la carpeta resultante con **Inno Setup** (`installer.iss`).
+3. Publica el instalador `OBS_Automation_Manager_Setup_vX.Y.Z.exe` como asset del GitHub Release.
+
+**Características del instalador:**
+- **Per-user, sin admin**: no requiere UAC ni password de administrador.
+- Instala en `%LOCALAPPDATA%\Programs\OBS_Automation_Manager\`.
+- Crea shortcut en Start Menu (Desktop opcional).
+- Aparece en "Aplicaciones instaladas" del usuario con desinstalador propio.
+- Al desinstalar preserva `%LOCALAPPDATA%\OBS_Automation_Manager\` (BD, logs, `.env`) — reinstalar / upgrade conserva la configuración.
+
+**Compilación local (opcional):**
 ```bash
-pip install pyinstaller
-```
+# 1. Generar la carpeta dist\OBS_Automation_Manager\
+build.bat
 
-**Uso:** doble-click en `build.bat`. El proceso limpia compilaciones anteriores y genera el ejecutable en `dist\OBS_Automation_Manager.exe`.
+# 2. Compilar el instalador (requiere Inno Setup 6 instalado)
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.0.0-dev installer.iss
+# → Output\OBS_Automation_Manager_Setup_v0.0.0-dev.exe
+```
 
 ## 🏗 Arquitectura
 

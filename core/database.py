@@ -1,16 +1,7 @@
 import sqlite3
-import os
-from pathlib import Path
+from core.paths import get_app_data_dir
 
-APP_NAME = "OBS_Automation_Manager"
-
-def _get_db_path() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    app_dir = Path(base) / APP_NAME
-    app_dir.mkdir(parents=True, exist_ok=True)
-    return app_dir / "obs_manager.db"
-
-DB_PATH = str(_get_db_path())
+DB_PATH = str(get_app_data_dir() / "obs_manager.db")
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
