@@ -142,6 +142,8 @@ class MainController:
         log.info("Conexión inicial a OBS establecida.")
         # Sincronizar estado de grabación con OBS (por si ya estaba grabando)
         self._sync_recording_state()
+        # Poblar combos del módulo de contadores con las escenas / text sources de OBS
+        self.countdown_controller.refresh_from_obs()
 
     def _sync_recording_state(self):
         status = self.obs_client.get_recording_status()
@@ -181,6 +183,8 @@ class MainController:
         )
         # Re-sincronizar estado de grabación (OBS puede haber seguido grabando)
         self._sync_recording_state()
+        # Refrescar combos del módulo de contadores
+        self.countdown_controller.refresh_from_obs()
         # Reanudar rotador si estaba activo antes de la caída
         if self._rotator_was_running:
             self._rotator_was_running = False

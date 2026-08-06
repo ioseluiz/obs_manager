@@ -665,9 +665,16 @@ class SceneController:
             # A) Intentar eliminar de OBS primero (si estamos conectados)
             if self.obs_client.client and scene_name:
                 success, msg = self.obs_client.delete_scene(scene_name)
-                # Si falla (por ejemplo, alguien ya la borró a mano en OBS), solo mostramos un aviso
                 if not success:
-                    log.warning("Delete scene OBS: %s", msg)
+                    # Caso benigno: la escena ya no estaba en OBS (código 600 /
+                    # "No source was found"). Se baja a debug para no ensuciar la
+                    # pestaña Logs; otras fallas siguen como warning.
+                    msg_l = (msg or "").lower()
+                    already_gone = "no source was found" in msg_l or "code 600" in msg_l
+                    if already_gone:
+                        log.debug("Delete scene OBS: '%s' ya no existía en OBS (%s)", scene_name, msg)
+                    else:
+                        log.warning("Delete scene OBS: %s", msg)
             
             # B) Eliminar de nuestra base de datos (SQLite) y refrescar la tabla
             self.model.delete_scene(scene_id)

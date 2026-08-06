@@ -56,6 +56,14 @@ def init_db():
         )
     ''')
 
+    # Migración: escena OBS asociada al contador (dónde viven sus text sources)
+    _add_column_if_missing(cursor, "contadores", "escena", "TEXT DEFAULT ''")
+    # Migración: layout por contador (posición y tamaño de la fila D H M s)
+    _add_column_if_missing(cursor, "contadores", "pos_x_pct", "INTEGER DEFAULT 50")
+    _add_column_if_missing(cursor, "contadores", "pos_y_pct", "INTEGER DEFAULT 50")
+    _add_column_if_missing(cursor, "contadores", "spread_pct", "INTEGER DEFAULT 100")
+    _add_column_if_missing(cursor, "contadores", "scale_pct", "INTEGER DEFAULT 100")
+
     conn.commit()
     conn.close()
 

@@ -28,8 +28,9 @@ class CalendarController:
         # Live tuning: cada cambio en los spins mueve el marcador en OBS al vuelo;
         # al terminar la edición (Enter o perder foco) se persiste en .env.
         spin_widgets = (
-            self.view.spin_x_start, self.view.spin_y_start,
-            self.view.spin_x_space, self.view.spin_y_space,
+            self.view.spin_x_start, self.view.spin_x_space,
+            self.view.spin_y_start_5w, self.view.spin_y_space_5w,
+            self.view.spin_y_start_6w, self.view.spin_y_space_6w,
             self.view.spin_scale,
         )
         for w in spin_widgets:
@@ -58,12 +59,22 @@ class CalendarController:
             QMessageBox.warning(self.view, "Faltan datos", "Selecciona todos los archivos.")
             return
 
-        success, msg = self.obs_client.build_calendar_scene(
+        success, msg, auto_scale_pct = self.obs_client.build_calendar_scene(
             scene_name, bg_path, circle_path, circle_name, x_space
         )
 
         if success:
-            # Una vez construido con auto-escala, movemos a la posición de hoy
+            # Sincronizar el spin de escala con el auto-scale calculado por OBS
+            # (evita que un posterior move_scene_item con scale_pct=100 anule el
+            # ajuste automático hecho al construir la escena).
+            if auto_scale_pct is not None and auto_scale_pct > 0:
+                self.view.spin_scale.blockSignals(True)
+                self.view.spin_scale.setValue(auto_scale_pct)
+                self.view.spin_scale.blockSignals(False)
+                self._persist_live_calibration()
+                log.info("Auto-scale de calendario aplicado: %d%%", auto_scale_pct)
+
+            # Movemos el marcador a la posición del día de hoy
             self.move_circle_to_today(show_messages=False)
             # Registrar la escena en la BD del rotador para que aparezca en la lista
             self._persist_calendar_scene(scene_name)
@@ -123,24 +134,38 @@ class CalendarController:
             self.view.input_scene_name.text(),
             self.view.input_source_name.text(),
             self.view.spin_x_start.value(),
-            self.view.spin_y_start.value(),
             self.view.spin_x_space.value(),
-            self.view.spin_y_space.value(),
-            self.view.spin_scale.value()
+            self.view.spin_y_start_5w.value(),
+            self.view.spin_y_space_5w.value(),
+            self.view.spin_y_start_6w.value(),
+            self.view.spin_y_space_6w.value(),
+            self.view.spin_scale.value(),
         )
         QMessageBox.information(self.view, "Éxito", "Calibración del calendario guardada en .env")
+
+    # --- Selección automática de calibración según semanas del mes ---
+    def _current_y_calibration_from_settings(self, settings):
+        """Devuelve (y_start, y_space) según cuántas semanas tenga el mes actual."""
+        if self.model.weeks_in_month() >= 6:
+            return settings["cal_y_start_6w"], settings["cal_y_space_6w"]
+        return settings["cal_y_start_5w"], settings["cal_y_space_5w"]
+
+    def _current_y_calibration_from_view(self):
+        """Igual que la anterior, pero leyendo los spinboxes de la vista (para live tuning)."""
+        if self.model.weeks_in_month() >= 6:
+            return self.view.spin_y_start_6w.value(), self.view.spin_y_space_6w.value()
+        return self.view.spin_y_start_5w.value(), self.view.spin_y_space_5w.value()
 
     def move_circle_to_today(self, show_messages=False):
         if not self.obs_client.client:
             if show_messages: QMessageBox.warning(self.view, "Error", "Conecta OBS primero.")
             return False
 
-        # 1. Leer configuración
+        # 1. Leer configuración (y elegir Y_START/Y_SPACE según semanas del mes)
         settings = self.settings_model.get_settings()
         x_start = settings["cal_x_start"]
-        y_start = settings["cal_y_start"]
         x_space = settings["cal_x_space"]
-        y_space = settings["cal_y_space"]
+        y_start, y_space = self._current_y_calibration_from_settings(settings)
         scene_name = settings["cal_scene"]
         source_name = settings["cal_source"]
 
@@ -154,7 +179,12 @@ class CalendarController:
 
         if show_messages:
             if success:
-                QMessageBox.information(self.view, "Actualizado", f"Círculo movido a X: {x}, Y: {y} y escalado a {settings['cal_scale']}%")
+                weeks = self.model.weeks_in_month()
+                QMessageBox.information(
+                    self.view, "Actualizado",
+                    f"Círculo movido a X: {x}, Y: {y} y escalado a {settings['cal_scale']}%\n"
+                    f"(calibración de {weeks} semanas)"
+                )
             else:
                 QMessageBox.critical(self.view, "Error", "No se pudo mover/escalar el círculo.")
 
@@ -170,9 +200,8 @@ class CalendarController:
         if not scene_name or not source_name:
             return
         x_start = self.view.spin_x_start.value()
-        y_start = self.view.spin_y_start.value()
         x_space = self.view.spin_x_space.value()
-        y_space = self.view.spin_y_space.value()
+        y_start, y_space = self._current_y_calibration_from_view()
         scale_pct = self.view.spin_scale.value()
         x, y = self.model.calculate_position(x_start, y_start, x_space, y_space)
         self.obs_client.move_scene_item(scene_name, source_name, x, y, scale_pct=scale_pct)
@@ -183,8 +212,10 @@ class CalendarController:
             self.view.input_scene_name.text().strip(),
             self.view.input_source_name.text().strip(),
             self.view.spin_x_start.value(),
-            self.view.spin_y_start.value(),
             self.view.spin_x_space.value(),
-            self.view.spin_y_space.value(),
+            self.view.spin_y_start_5w.value(),
+            self.view.spin_y_space_5w.value(),
+            self.view.spin_y_start_6w.value(),
+            self.view.spin_y_space_6w.value(),
             self.view.spin_scale.value(),
         )

@@ -400,6 +400,108 @@ class OBSClient:
             log.warning("list_input_names falló: %s", e)
             return None
 
+    def list_text_input_names(self):
+        """Devuelve un set con los nombres de text sources de OBS, o None si falla.
+
+        Filtra por inputKind que empiece con 'text_' (cubre text_gdiplus_v2/v3 en
+        Windows y text_ft2_source_v2 en Linux).
+        """
+        if not self.client:
+            return None
+        try:
+            resp = self.client.get_input_list()
+            inputs = getattr(resp, "inputs", []) or []
+            names = set()
+            for item in inputs:
+                if isinstance(item, dict):
+                    kind = item.get("inputKind") or ""
+                    if kind.startswith("text_"):
+                        n = item.get("inputName")
+                        if n:
+                            names.add(n)
+            return names
+        except Exception as e:
+            log.warning("list_text_input_names falló: %s", e)
+            return None
+
+    def list_scene_names(self):
+        """Devuelve lista con los nombres de escenas de OBS, o None si falla.
+
+        Defensivo con las claves porque distintas versiones de obsws-python
+        pueden entregar sceneName (v5, camelCase) o scene_name (snake_case).
+        """
+        if not self.client:
+            return None
+        try:
+            resp = self.client.get_scene_list()
+            scenes = getattr(resp, "scenes", None) or []
+            names = []
+            for item in scenes:
+                if isinstance(item, dict):
+                    n = (item.get("sceneName")
+                         or item.get("scene_name")
+                         or item.get("name"))
+                    if n:
+                        names.append(n)
+                elif isinstance(item, str):
+                    names.append(item)
+            log.info("list_scene_names devolvió %d escenas: %s", len(names), names)
+            return names
+        except Exception as e:
+            log.warning("list_scene_names falló: %s", e)
+            return None
+
+    def position_countdown_sources(self, scene_name, source_names,
+                                    x_pct=50, y_pct=50, spread_pct=100,
+                                    scale_pct=100):
+        """Distribuye source_names en una fila horizontal.
+
+        - source_names: lista ordenada (izquierda→derecha). Vacías se saltan.
+        - x_pct, y_pct: centro de la fila (% del canvas). 50 = centro.
+        - spread_pct: ancho total que ocupa la fila (% del canvas).
+        - scale_pct: escalado aplicado a cada text source.
+
+        Cada item queda con alignment=0 (centro) y su centro en la posición
+        calculada. Es la misma función usada por el diálogo de ajuste, así
+        que basta con recalcular con nuevos params para mover en vivo.
+        """
+        if not self.client or not source_names:
+            return
+        n = len(source_names)
+        center_x = self.canvas_width * (x_pct / 100.0)
+        center_y = self.canvas_height * (y_pct / 100.0)
+        total_width = self.canvas_width * (spread_pct / 100.0)
+        col_width = total_width / n if n else 0
+        for i, src in enumerate(source_names):
+            if not src:
+                continue
+            col_x = center_x + (i - (n - 1) / 2.0) * col_width
+            pan_x = int(col_x - self.canvas_width / 2.0)
+            pan_y = int(center_y - self.canvas_height / 2.0)
+            self.set_source_transform(scene_name, src, scale_pct, pan_x, pan_y)
+
+    def create_text_input(self, scene_name, input_name, initial_text="00",
+                          input_kind="text_gdiplus_v3", style=None):
+        """Crea un text source dentro de la escena indicada. Devuelve (ok, msg).
+
+        style: dict opcional con settings adicionales para text_gdiplus_v3
+        (font, color, outline, align, valign, etc.). Se mergea sobre {'text': ...}.
+        """
+        if not self.client:
+            return False, "OBS no está conectado."
+        try:
+            settings = {"text": str(initial_text)}
+            if style:
+                settings.update(style)
+            self.client.create_input(
+                scene_name, input_name, input_kind, settings, True
+            )
+            return True, "Fuente de texto creada."
+        except Exception as e:
+            log.warning("create_text_input falló para '%s' en '%s': %s",
+                        input_name, scene_name, e)
+            return False, str(e)
+
     def set_text_source_text(self, source_name, text):
         """Actualiza el texto de un text source (text_gdiplus_v3 / text_ft2_source_v2).
 

@@ -2,6 +2,18 @@ import calendar
 import datetime
 
 class CalendarModel:
+    def weeks_in_month(self, target_date=None):
+        """Devuelve cuántas filas ocupa el mes en un calendario que arranca en domingo.
+
+        Típicamente 5 o 6. Febrero de 28 días empezando en domingo devuelve 4.
+        """
+        if target_date is None:
+            target_date = datetime.date.today()
+        first_weekday, ndays = calendar.monthrange(target_date.year, target_date.month)
+        start_col = (first_weekday + 1) % 7  # Dom=0…Sáb=6
+        total_cells = start_col + ndays
+        return (total_cells + 6) // 7  # ceil
+
     def calculate_position(self, x_start, y_start, x_spacing, y_spacing, target_date=None):
         """
         Calcula la coordenada (X, Y) exacta para un día en el calendario.
