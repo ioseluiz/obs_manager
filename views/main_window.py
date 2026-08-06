@@ -1,7 +1,8 @@
 import sys
 from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QTabWidget,
-                             QToolBar, QStatusBar, QPushButton, QLabel)
+                             QToolBar, QStatusBar, QPushButton, QLabel,
+                             QApplication)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 
@@ -15,7 +16,19 @@ class MainWindow(QMainWindow):
         # --- CONFIGURACIÓN DE LA VENTANA ---
         self.setWindowTitle("OBS Automation Manager - INI")
         self.setWindowIcon(QIcon(str(_ICON_PATH)))
-        self.setMinimumSize(1200, 750)
+        # Min height 640px permite trabajar en laptops típicos (1366x768 con
+        # taskbar visible da ~700-720px de área útil).
+        self.setMinimumSize(1100, 640)
+
+        # Tamaño inicial adaptativo — 90% de la pantalla disponible, cap en
+        # 1500×880. Esto evita que la ventana arranque al mínimo y comprima
+        # los botones verticalmente en pantallas grandes.
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            target_w = max(1100, min(1500, int(avail.width() * 0.9)))
+            target_h = max(640, min(880, int(avail.height() * 0.9)))
+            self.resize(target_w, target_h)
 
         # --- WIDGET CENTRAL Y LAYOUT ---
         self.central_widget = QWidget()
@@ -81,6 +94,14 @@ class MainWindow(QMainWindow):
         self.lbl_record_timer.setVisible(False)
         self.statusBar().addPermanentWidget(self.lbl_record_timer)
 
+        # Canvas de OBS (resolución del base_width × base_height).
+        # Va en el status bar porque (a) es info de estado — su lugar natural,
+        # (b) es siempre visible sin competir con botones por espacio horizontal.
+        self.lbl_canvas = QLabel("🖥 Canvas: — ")
+        self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
+        self.lbl_canvas.setToolTip("Resolución del canvas de OBS (base_width × base_height)")
+        self.statusBar().addPermanentWidget(self.lbl_canvas)
+
         # Label para indicar el estado de la conexión en la barra de estado
         self.lbl_connection_status = QLabel("Desconectado ")
         self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
@@ -108,6 +129,25 @@ class MainWindow(QMainWindow):
         self.lbl_connection_status.setText(f"🟠 Reconectando (intento {attempt}) ")
         self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
         self.btn_record.setEnabled(False)
+
+    def set_canvas_size(self, width, height):
+        """Actualiza el label del canvas de OBS en el status bar."""
+        try:
+            w = int(width) if width else 0
+            h = int(height) if height else 0
+        except (TypeError, ValueError):
+            w = h = 0
+        if w > 0 and h > 0:
+            self.lbl_canvas.setText(f"🖥 Canvas: {w}×{h} ")
+            self.lbl_canvas.setStyleSheet(
+                "color: #198754; font-family: monospace; font-weight: bold;"
+            )
+        else:
+            self.clear_canvas_size()
+
+    def clear_canvas_size(self):
+        self.lbl_canvas.setText("🖥 Canvas: — ")
+        self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
 
     def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
         """Actualiza el estado visual del botón de transmisión y el timer."""
