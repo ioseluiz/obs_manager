@@ -1,12 +1,30 @@
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout,
                              QSpinBox, QPushButton, QLineEdit, QGroupBox,
-                             QHBoxLayout, QLabel)
+                             QHBoxLayout, QLabel, QScrollArea, QFrame)
 
 
 class CalendarView(QWidget):
     def __init__(self, current_settings):
         super().__init__()
-        self.layout = QVBoxLayout(self)
+
+        # El layout raíz de la vista contiene un QScrollArea que envuelve todo.
+        # Esto permite trabajar cómodamente en laptops de 14" donde el
+        # contenido combinado (4 groupboxes) excede la altura útil (~540px).
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        root.addWidget(scroll)
+
+        inner = QWidget()
+        scroll.setWidget(inner)
+        self.layout = QVBoxLayout(inner)
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        self.layout.setSpacing(8)
 
         # --- PANEL 1: CONSTRUCTOR AUTOMÁTICO EN OBS ---
         build_group = QGroupBox("1. Constructor Automático de Escena")
@@ -20,6 +38,7 @@ class CalendarView(QWidget):
         self.input_bg_file = QLineEdit()
         self.input_bg_file.setPlaceholderText("Selecciona la imagen del mes...")
         self.btn_browse_bg = QPushButton("📁")
+        self.btn_browse_bg.setMaximumWidth(40)
         bg_layout.addWidget(self.input_bg_file)
         bg_layout.addWidget(self.btn_browse_bg)
 
@@ -27,6 +46,7 @@ class CalendarView(QWidget):
         self.input_circle_file = QLineEdit()
         self.input_circle_file.setPlaceholderText("Selecciona el PNG del globo/círculo...")
         self.btn_browse_circle = QPushButton("📁")
+        self.btn_browse_circle.setMaximumWidth(40)
         circle_layout.addWidget(self.input_circle_file)
         circle_layout.addWidget(self.btn_browse_circle)
 
@@ -42,13 +62,10 @@ class CalendarView(QWidget):
         build_group.setLayout(build_layout)
         self.layout.addWidget(build_group)
 
-        # --- PANEL 2: CALIBRACIÓN MATEMÁTICA ---
-        # Ahora dividida en Común (X + escala) + Plantilla 5 semanas + Plantilla 6 semanas.
-
+        # --- PANEL 2: CALIBRACIÓN COMÚN (columnas X + escala) ---
         common_group = QGroupBox("2. Calibración común (columnas X + escala)")
         common_layout = QFormLayout()
 
-        # Los spinboxes X_START y X_SPACE ahora comparten defaults del Lua original.
         self.spin_x_start = self._create_spinbox(3000, current_settings.get("cal_x_start", 180))
         self.spin_x_space = self._create_spinbox(500, current_settings.get("cal_x_space", 190))
 
@@ -64,25 +81,33 @@ class CalendarView(QWidget):
         common_group.setLayout(common_layout)
         self.layout.addWidget(common_group)
 
-        # Plantilla 5 semanas (celdas grandes)
-        cal5_group = QGroupBox("3. Plantilla 5 semanas (celdas grandes)")
+        # --- PANELES 3 y 4 lado a lado: plantillas 5 semanas y 6 semanas ---
+        # Son simétricas — colocarlas en QHBoxLayout ahorra ~110px verticales,
+        # crítico en laptops de 14".
+        templates_row = QHBoxLayout()
+        templates_row.setSpacing(8)
+
+        cal5_group = QGroupBox("3. Plantilla 5 semanas")
+        cal5_group.setToolTip("Aplicada cuando el mes actual ocupa 5 semanas (celdas grandes)")
         cal5_layout = QFormLayout()
         self.spin_y_start_5w = self._create_spinbox(3000, current_settings.get("cal_y_start_5w", 165))
         self.spin_y_space_5w = self._create_spinbox(500, current_settings.get("cal_y_space_5w", 185))
-        cal5_layout.addRow("Posición Y (Domingo Sem 1) — 5 sem:", self.spin_y_start_5w)
-        cal5_layout.addRow("Espaciado Vertical (ΔY) — 5 sem:", self.spin_y_space_5w)
+        cal5_layout.addRow("Posición Y (Sem 1):", self.spin_y_start_5w)
+        cal5_layout.addRow("Espaciado Vertical ΔY:", self.spin_y_space_5w)
         cal5_group.setLayout(cal5_layout)
-        self.layout.addWidget(cal5_group)
+        templates_row.addWidget(cal5_group)
 
-        # Plantilla 6 semanas (celdas comprimidas)
-        cal6_group = QGroupBox("4. Plantilla 6 semanas (celdas comprimidas)")
+        cal6_group = QGroupBox("4. Plantilla 6 semanas")
+        cal6_group.setToolTip("Aplicada cuando el mes actual ocupa 6 semanas (celdas comprimidas)")
         cal6_layout = QFormLayout()
         self.spin_y_start_6w = self._create_spinbox(3000, current_settings.get("cal_y_start_6w", 155))
         self.spin_y_space_6w = self._create_spinbox(500, current_settings.get("cal_y_space_6w", 155))
-        cal6_layout.addRow("Posición Y (Domingo Sem 1) — 6 sem:", self.spin_y_start_6w)
-        cal6_layout.addRow("Espaciado Vertical (ΔY) — 6 sem:", self.spin_y_space_6w)
+        cal6_layout.addRow("Posición Y (Sem 1):", self.spin_y_start_6w)
+        cal6_layout.addRow("Espaciado Vertical ΔY:", self.spin_y_space_6w)
         cal6_group.setLayout(cal6_layout)
-        self.layout.addWidget(cal6_group)
+        templates_row.addWidget(cal6_group)
+
+        self.layout.addLayout(templates_row)
 
         hint = QLabel(
             "La calibración correcta se aplica automáticamente según cuántas "

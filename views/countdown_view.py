@@ -65,6 +65,13 @@ class CountdownView(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(8, 6, 8, 6)
+        self.layout.setSpacing(6)
+
+        # Cache de escenas/fuentes reales de OBS — se pasan al CountdownEditDialog
+        # cuando se abre (tanto para "Nuevo" como para "Editar").
+        self._scene_choices = []
+        self._source_choices = []
 
         # --- CONTROLES SUPERIORES ---
         controls_layout = QHBoxLayout()
@@ -74,8 +81,7 @@ class CountdownView(QWidget):
         controls_layout.addStretch()
         self.btn_refresh_sources = QPushButton("↻ Refrescar de OBS")
         self.btn_refresh_sources.setToolTip(
-            "Lee escenas y text sources actuales de OBS para poblar los "
-            "combos del formulario."
+            "Lee escenas y text sources actuales de OBS."
         )
         controls_layout.addWidget(self.btn_refresh_sources)
         self.layout.addLayout(controls_layout)
@@ -87,50 +93,19 @@ class CountdownView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.hideColumn(0)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.layout.addWidget(self.table)
-
-        # --- FORMULARIO PARA AGREGAR ---
-        form_group = QGroupBox("Nuevo Contador")
-        form_layout = QFormLayout()
-
-        self.in_nombre = QLineEdit()
-        self.in_fecha = QDateTimeEdit(QDateTime.currentDateTime())
-        self.in_fecha.setCalendarPopup(True)
-        self.in_rep_anual = QCheckBox("Reiniciar anualmente si la fecha ya pasó")
-
-        # Escena OBS a la que pertenece el contador
-        self.in_escena = _make_editable_combo()
-        self.in_escena.setToolTip(
-            "Escena OBS donde viven los text sources de este contador. "
-            "Se usa para crear las fuentes faltantes en el sitio correcto."
-        )
-
-        # Fuentes de Texto — combos editables (auto-completa con text sources
-        # reales de OBS, permite tipear un nombre nuevo).
-        self.in_src_dias = _make_editable_combo("TXT_DIAS")
-        self.in_src_horas = _make_editable_combo("TXT_HORAS")
-        self.in_src_mins = _make_editable_combo("TXT_MINUTOS")
-        self.in_src_secs = _make_editable_combo("TXT_SEGUNDOS")
-
-        form_layout.addRow("Nombre del Evento:", self.in_nombre)
-        form_layout.addRow("Fecha y Hora:", self.in_fecha)
-        form_layout.addRow("", self.in_rep_anual)
-        form_layout.addRow("Escena OBS:", self.in_escena)
-        form_layout.addRow("Fuente OBS Días:", self.in_src_dias)
-        form_layout.addRow("Fuente OBS Horas:", self.in_src_horas)
-        form_layout.addRow("Fuente OBS Minutos:", self.in_src_mins)
-        form_layout.addRow("Fuente OBS Segundos:", self.in_src_secs)
-
-        form_group.setLayout(form_layout)
-        self.layout.addWidget(form_group)
+        # stretch=1 → la tabla absorbe toda la altura libre. El form vive ahora
+        # en CountdownEditDialog, se abre al pulsar "➕ Nuevo".
+        self.layout.addWidget(self.table, 1)
 
         # --- BOTONES CRUD ---
         btn_row = QHBoxLayout()
-        self.btn_add = QPushButton("Agregar Contador")
-        self.btn_edit = QPushButton("Editar Seleccionado")
-        self.btn_position = QPushButton("Ajustar Posición")
-        self.btn_delete = QPushButton("Eliminar Seleccionado")
-        self.btn_delete.setStyleSheet("background-color: #6C757D;")
+        self.btn_add = QPushButton("➕ Nuevo Contador")
+        self.btn_add.setStyleSheet("background-color: #198754; color: white; font-weight: bold;")
+        self.btn_edit = QPushButton("✏ Editar Seleccionado")
+        self.btn_edit.setStyleSheet("background-color: #0D6EFD; color: white;")
+        self.btn_position = QPushButton("🎯 Ajustar Posición")
+        self.btn_delete = QPushButton("🗑 Eliminar Seleccionado")
+        self.btn_delete.setStyleSheet("background-color: #DC3545; color: white;")
 
         btn_row.addWidget(self.btn_add)
         btn_row.addWidget(self.btn_edit)
@@ -148,12 +123,16 @@ class CountdownView(QWidget):
             self.table.setItem(row, 3, QTableWidgetItem(c.get("escena") or ""))
 
     def set_source_choices(self, names):
-        for combo in (self.in_src_dias, self.in_src_horas,
-                      self.in_src_mins, self.in_src_secs):
-            _fill_combo_preserving_text(combo, names)
+        self._source_choices = list(names or [])
 
     def set_scene_choices(self, names):
-        _fill_combo_preserving_text(self.in_escena, names)
+        self._scene_choices = list(names or [])
+
+    def get_scene_choices(self):
+        return list(self._scene_choices)
+
+    def get_source_choices(self):
+        return list(self._source_choices)
 
 
 class MissingSourcesDialog(QDialog):
@@ -283,11 +262,22 @@ class MissingSourcesDialog(QDialog):
 
 
 class CountdownEditDialog(QDialog):
-    """Diálogo modal para editar un contador existente."""
+    """Diálogo modal para crear o editar un contador.
 
-    def __init__(self, countdown, scene_names, source_names, parent=None):
+    countdown={} → modo "Nuevo Contador" (todos los campos vacíos, defaults).
+    countdown={...} → modo edición (prefill con los valores del contador).
+    """
+
+    _DEFAULT_SOURCES = {
+        "source_dias": "TXT_DIAS",
+        "source_horas": "TXT_HORAS",
+        "source_minutos": "TXT_MINUTOS",
+        "source_segundos": "TXT_SEGUNDOS",
+    }
+
+    def __init__(self, countdown, scene_names, source_names, parent=None, title=None):
         super().__init__(parent)
-        self.setWindowTitle("Editar Contador")
+        self.setWindowTitle(title or "Editar Contador")
         self.setMinimumWidth(460)
 
         layout = QVBoxLayout(self)
@@ -315,10 +305,14 @@ class CountdownEditDialog(QDialog):
             ("source_segundos", "in_src_secs"),
         ]
         source_names_sorted = sorted(set(source_names or []))
+        is_new = not countdown
         for key, attr in src_defaults:
             combo = _make_editable_combo()
             combo.addItems(source_names_sorted)
-            combo.setEditText(countdown.get(key) or "")
+            # En modo "Nuevo", sugerimos los nombres canónicos (TXT_DIAS, ...)
+            # para no forzar al usuario a tipearlos.
+            default = self._DEFAULT_SOURCES.get(key, "") if is_new else ""
+            combo.setEditText(countdown.get(key) or default)
             setattr(self, attr, combo)
 
         form.addRow("Nombre del Evento:", self.in_nombre)

@@ -3,7 +3,8 @@ import unicodedata
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QPushButton, QSpinBox,
-                             QLabel, QHeaderView, QGroupBox, QSlider, QSizePolicy)
+                             QLabel, QHeaderView, QGroupBox, QSlider, QMenu,
+                             QFrame)
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QBrush, QColor, QIcon, QPixmap
 from views.schedule_widget import format_schedule_summary
@@ -11,7 +12,7 @@ from views.schedule_widget import format_schedule_summary
 log = logging.getLogger(__name__)
 
 ACTIVE_ROW_BG = QColor("#CCE5FF")  # azul claro, alta legibilidad sobre texto oscuro
-BUTTON_MIN_HEIGHT = 32  # Evita compresión vertical cuando la ventana es baja
+ICON_BTN_WIDTH = 42  # Ancho fijo para botones de un solo símbolo
 
 
 def _norm_scene_name(s):
@@ -36,17 +37,20 @@ class SceneView(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(8, 6, 8, 6)
+        self.layout.setSpacing(6)
         self._active_scene_name = None
 
         # --- PANEL SUPERIOR: Controles de Reproducción ---
         controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(4)
         self.btn_start = QPushButton("▶ Iniciar Rotador")
         self.btn_start.setStyleSheet("background-color: #198754;")
 
         self.btn_prev = QPushButton("⏮")
         self.btn_prev.setToolTip("Escena anterior (cancela el countdown actual)")
         self.btn_prev.setStyleSheet("background-color: #6C757D;")
-        self.btn_prev.setMaximumWidth(50)
+        self.btn_prev.setFixedWidth(ICON_BTN_WIDTH)
         self.btn_prev.setEnabled(False)
 
         self.btn_pause = QPushButton("⏸ Pausar")
@@ -57,29 +61,24 @@ class SceneView(QWidget):
         self.btn_next = QPushButton("⏭")
         self.btn_next.setToolTip("Escena siguiente (cancela el countdown actual)")
         self.btn_next.setStyleSheet("background-color: #6C757D;")
-        self.btn_next.setMaximumWidth(50)
+        self.btn_next.setFixedWidth(ICON_BTN_WIDTH)
         self.btn_next.setEnabled(False)
 
         self.btn_stop = QPushButton("⏹ Detener Rotador")
         self.btn_stop.setStyleSheet("background-color: #DC3545;")
         self.btn_stop.setEnabled(False)
 
-        self.btn_refresh_previews = QPushButton("🔄 Previews")
+        self.btn_refresh_previews = QPushButton("🔄")
         self.btn_refresh_previews.setToolTip("Actualizar las miniaturas de todas las escenas")
         self.btn_refresh_previews.setStyleSheet("background-color: #17A2B8;")
+        self.btn_refresh_previews.setFixedWidth(ICON_BTN_WIDTH)
 
         self.lbl_status = QLabel("Estado: Detenido")
         self.lbl_status.setStyleSheet("font-weight: bold; color: #6C757D;")
 
         self.lbl_date = QLabel("Fecha...")
-        self.lbl_date.setStyleSheet("font-weight: bold; color: #495057; font-size: 15px;")
+        self.lbl_date.setStyleSheet("font-weight: bold; color: #495057; font-size: 14px;")
         self.lbl_date.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-        # Fijar altura mínima para que no se compriman en ventanas bajas
-        for b in (self.btn_start, self.btn_prev, self.btn_pause, self.btn_next,
-                  self.btn_stop, self.btn_refresh_previews):
-            b.setMinimumHeight(BUTTON_MIN_HEIGHT)
-            b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         controls_layout.addWidget(self.btn_start)
         controls_layout.addWidget(self.btn_prev)
@@ -87,6 +86,7 @@ class SceneView(QWidget):
         controls_layout.addWidget(self.btn_next)
         controls_layout.addWidget(self.btn_stop)
         controls_layout.addWidget(self.btn_refresh_previews)
+        controls_layout.addSpacing(8)
         controls_layout.addWidget(self.lbl_status)
         controls_layout.addStretch()
         controls_layout.addWidget(self.lbl_date)
@@ -105,40 +105,81 @@ class SceneView(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         # Stretch=1 → la tabla absorbe todo el espacio vertical libre
         self.layout.addWidget(self.table, 1)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._open_table_context_menu)
 
         # --- FILA DE BOTONES DE ACCIÓN sobre escenas seleccionadas ---
+        # Layout: [Agregar] [Editar] [Eliminar] │ [📋] [▲] [▼]
+        # Duplicar/Subir/Bajar se compactan a icon-only + también viven en el
+        # menú contextual de la tabla — clic derecho sobre una fila.
         action_row = QHBoxLayout()
-        action_row.setSpacing(6)
+        action_row.setSpacing(4)
         self.btn_add = QPushButton("➕ Agregar Nueva Escena")
         self.btn_add.setStyleSheet("background-color: #198754; color: white; font-weight: bold;")
         self.btn_edit = QPushButton("✏ Editar Seleccionada")
         self.btn_edit.setStyleSheet("background-color: #0D6EFD; color: white;")
-        self.btn_duplicate = QPushButton("📋 Duplicar")
-        self.btn_duplicate.setToolTip("Clonar la escena seleccionada con todos sus ajustes")
-        self.btn_duplicate.setStyleSheet("background-color: #6F42C1; color: white;")
-        self.btn_move_up = QPushButton("▲  Subir")
-        self.btn_move_up.setToolTip("Mover escena seleccionada hacia arriba en el orden")
-        self.btn_move_up.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
-        self.btn_move_down = QPushButton("▼  Bajar")
-        self.btn_move_down.setToolTip("Mover escena seleccionada hacia abajo en el orden")
-        self.btn_move_down.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
         self.btn_delete = QPushButton("🗑 Eliminar Seleccionada")
         self.btn_delete.setStyleSheet("background-color: #DC3545; color: white;")
-        for b in (self.btn_add, self.btn_edit, self.btn_duplicate,
-                  self.btn_move_up, self.btn_move_down, self.btn_delete):
-            b.setMinimumHeight(BUTTON_MIN_HEIGHT)
-            b.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+        self.btn_duplicate = QPushButton("📋")
+        self.btn_duplicate.setToolTip("Duplicar escena (Ctrl+D)")
+        self.btn_duplicate.setStyleSheet("background-color: #6F42C1; color: white;")
+        self.btn_duplicate.setFixedWidth(ICON_BTN_WIDTH)
+        self.btn_move_up = QPushButton("▲")
+        self.btn_move_up.setToolTip("Mover escena hacia arriba")
+        self.btn_move_up.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
+        self.btn_move_up.setFixedWidth(ICON_BTN_WIDTH)
+        self.btn_move_down = QPushButton("▼")
+        self.btn_move_down.setToolTip("Mover escena hacia abajo")
+        self.btn_move_down.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
+        self.btn_move_down.setFixedWidth(ICON_BTN_WIDTH)
 
         action_row.addWidget(self.btn_add)
         action_row.addWidget(self.btn_edit)
+        action_row.addWidget(self.btn_delete)
+        # Separador visual entre acciones destructivas/creación y los iconos
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("color: #CED4DA;")
+        action_row.addSpacing(4)
+        action_row.addWidget(sep)
+        action_row.addSpacing(4)
         action_row.addWidget(self.btn_duplicate)
         action_row.addWidget(self.btn_move_up)
         action_row.addWidget(self.btn_move_down)
-        action_row.addWidget(self.btn_delete)
+        action_row.addStretch()
         self.layout.addLayout(action_row)
 
         # --- PANEL AJUSTE EN VIVO ---
         self.layout.addWidget(self._build_live_panel(), 0)
+
+    def _open_table_context_menu(self, pos):
+        """Menú contextual sobre la tabla: acciones sobre la escena bajo el cursor."""
+        row = self.table.rowAt(pos.y())
+        has_row = row >= 0
+        if has_row:
+            self.table.selectRow(row)
+        menu = QMenu(self.table)
+        act_edit = menu.addAction("✏ Editar")
+        act_dup = menu.addAction("📋 Duplicar")
+        menu.addSeparator()
+        act_up = menu.addAction("▲ Subir")
+        act_down = menu.addAction("▼ Bajar")
+        menu.addSeparator()
+        act_del = menu.addAction("🗑 Eliminar")
+        for a in (act_edit, act_dup, act_up, act_down, act_del):
+            a.setEnabled(has_row)
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is None:
+            return
+        # Redirige al botón correspondiente para no duplicar la lógica del controller
+        {
+            act_edit: self.btn_edit,
+            act_dup: self.btn_duplicate,
+            act_up: self.btn_move_up,
+            act_down: self.btn_move_down,
+            act_del: self.btn_delete,
+        }[chosen].click()
 
     def _build_live_panel(self):
         """Panel de zoom/pan en vivo. Actúa sobre la escena seleccionada en la tabla.
@@ -149,14 +190,14 @@ class SceneView(QWidget):
         group = QGroupBox("Ajuste en vivo (selecciona una escena y arrastra los sliders)")
         group.setCheckable(True)
         group.setChecked(True)
-        group.setMaximumHeight(160)
+        group.setMaximumHeight(130)
         # Al plegar/desplegar, mostramos u ocultamos el contenido y limpiamos
         # el maximumHeight para que el layout compacte bien.
         group.toggled.connect(self._on_live_group_toggled)
         self._live_group = group
         outer = QVBoxLayout()
-        outer.setContentsMargins(8, 4, 8, 4)
-        outer.setSpacing(2)
+        outer.setContentsMargins(6, 2, 6, 2)
+        outer.setSpacing(1)
 
         self.live_zoom_slider, self.live_zoom_spin = self._make_live_row(
             outer, "Zoom:", 10, 500, 100, " %"
@@ -195,8 +236,9 @@ class SceneView(QWidget):
 
     def _make_live_row(self, parent_layout, label, mn, mx, default, suffix):
         row = QHBoxLayout()
+        row.setSpacing(4)
         lbl = QLabel(label)
-        lbl.setMinimumWidth(50)
+        lbl.setMinimumWidth(45)
         row.addWidget(lbl)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(mn, mx)
@@ -206,7 +248,7 @@ class SceneView(QWidget):
         spin.setRange(mn, mx)
         spin.setValue(default)
         spin.setSuffix(suffix)
-        spin.setMinimumWidth(90)
+        spin.setMinimumWidth(72)
         row.addWidget(spin)
         parent_layout.addLayout(row)
         return slider, spin
@@ -229,7 +271,7 @@ class SceneView(QWidget):
             if w is self._live_group:
                 continue
             w.setVisible(checked)
-        self._live_group.setMaximumHeight(160 if checked else 30)
+        self._live_group.setMaximumHeight(130 if checked else 26)
 
     def set_live_values(self, zoom_pct, pan_x, pan_y, target_label=None):
         """Carga valores en el panel sin disparar señales (para selección de fila)."""

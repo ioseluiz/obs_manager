@@ -67,24 +67,22 @@ class CountdownController:
             self._set_sync_ui(True)
 
     def add_countdown(self):
-        data = {
-            "nombre": self.view.in_nombre.text().strip(),
-            # ISO format para guardarlo seguro en SQLite
-            "fecha_objetivo": self.view.in_fecha.dateTime().toPyDateTime().isoformat(),
-            "source_dias": self.view.in_src_dias.currentText().strip(),
-            "source_horas": self.view.in_src_horas.currentText().strip(),
-            "source_minutos": self.view.in_src_mins.currentText().strip(),
-            "source_segundos": self.view.in_src_secs.currentText().strip(),
-            "repetir_anual": self.view.in_rep_anual.isChecked(),
-            "escena": self.view.in_escena.currentText().strip(),
-        }
+        # Reutilizamos CountdownEditDialog en modo "Nuevo" (countdown vacío).
+        # Los combos se prellenan con las últimas escenas/fuentes conocidas.
+        scenes = self.view.get_scene_choices()
+        sources = self.view.get_source_choices()
+        dialog = CountdownEditDialog(
+            {}, scenes, sources, self.view, title="Nuevo Contador"
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
 
+        data = dialog.get_data()
         if not data["nombre"]:
             QMessageBox.warning(self.view, "Error", "El nombre es requerido.")
             return
 
         self.model.add_countdown(data)
-        self.view.in_nombre.clear()
         self.refresh_table()
 
     def edit_countdown(self):

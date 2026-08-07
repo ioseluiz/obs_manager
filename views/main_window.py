@@ -23,12 +23,16 @@ class MainWindow(QMainWindow):
         # Tamaño inicial adaptativo — 90% de la pantalla disponible, cap en
         # 1500×880. Esto evita que la ventana arranque al mínimo y comprima
         # los botones verticalmente en pantallas grandes.
+        # También detectamos pantallas bajas (<720px útiles) para modo compacto.
+        self._compact_mode = False
         screen = QApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
             target_w = max(1100, min(1500, int(avail.width() * 0.9)))
             target_h = max(640, min(880, int(avail.height() * 0.9)))
             self.resize(target_w, target_h)
+            # Laptops de 14" (768px o 1080px @ 125%) suelen dar ≤720px útiles.
+            self._compact_mode = avail.height() <= 760
 
         # --- WIDGET CENTRAL Y LAYOUT ---
         self.central_widget = QWidget()
@@ -49,26 +53,34 @@ class MainWindow(QMainWindow):
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar)
 
+        # En modo compacto (pantallas ≤760px), los textos largos consumen ancho
+        # innecesario en el toolbar. Reducimos a un símbolo + tooltip descriptivo.
+        # `_text_full` / `_text_compact` se guardan como atributos para permitir
+        # cambiar el estado del botón (p.ej. Conectar → Conectado) sin perder
+        # el texto compacto.
+        compact = self._compact_mode
+
         # Botón de Ajustes
-        self.btn_settings = QPushButton(" ⚙ Ajustes")
+        self.btn_settings = QPushButton("⚙" if compact else " ⚙ Ajustes")
+        self.btn_settings.setToolTip("Ajustes")
         self.toolbar.addWidget(self.btn_settings)
-        
+
         self.toolbar.addSeparator()
 
         # Botón de Conexión OBS
-        self.btn_connect = QPushButton(" 🔌 Conectar OBS")
-        # Estilo inicial de conexión
+        self.btn_connect = QPushButton("🔌" if compact else " 🔌 Conectar OBS")
+        self.btn_connect.setToolTip("Conectar a OBS")
         self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
         self.toolbar.addWidget(self.btn_connect)
 
         self.toolbar.addSeparator()
 
         # Export / Import de escenas
-        self.btn_export = QPushButton(" 📤 Exportar")
+        self.btn_export = QPushButton("📤" if compact else " 📤 Exportar")
         self.btn_export.setToolTip("Exportar todas las escenas a un archivo JSON")
         self.toolbar.addWidget(self.btn_export)
 
-        self.btn_import = QPushButton(" 📥 Importar")
+        self.btn_import = QPushButton("📥" if compact else " 📥 Importar")
         self.btn_import.setToolTip("Importar escenas desde un archivo JSON")
         self.toolbar.addWidget(self.btn_import)
 
@@ -76,7 +88,7 @@ class MainWindow(QMainWindow):
 
         # Botón de Transmisión (toggle) — dispara StartRecord/StopRecord de OBS,
         # que en la config Custom Output FFmpeg + URL UDP transmite sin generar archivo.
-        self.btn_record = QPushButton(" 🔴 Transmitir")
+        self.btn_record = QPushButton("🔴" if compact else " 🔴 Transmitir")
         self.btn_record.setToolTip("Iniciar salida en OBS (Custom Output FFmpeg → UDP)")
         self.btn_record.setEnabled(False)  # Se habilita al conectar
         self._record_style_idle = "background-color: #6C757D; color: white;"
@@ -109,14 +121,17 @@ class MainWindow(QMainWindow):
 
     def set_connection_ui(self, connected: bool):
         """Cambia visualmente la UI dependiendo de si OBS está conectado o no."""
+        compact = self._compact_mode
         if connected:
-            self.btn_connect.setText(" ✔ Conectado")
+            self.btn_connect.setText("✔" if compact else " ✔ Conectado")
+            self.btn_connect.setToolTip("Conectado a OBS")
             self.btn_connect.setStyleSheet("background-color: #198754; color: white;")
             self.lbl_connection_status.setText("🟢 Conectado ")
             self.lbl_connection_status.setStyleSheet("color: #198754; font-weight: bold;")
             self.btn_record.setEnabled(True)
         else:
-            self.btn_connect.setText(" 🔌 Reconectar")
+            self.btn_connect.setText("🔌" if compact else " 🔌 Reconectar")
+            self.btn_connect.setToolTip("Reconectar a OBS")
             self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
             self.lbl_connection_status.setText("🔴 Desconectado ")
             self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
@@ -124,7 +139,9 @@ class MainWindow(QMainWindow):
 
     def set_reconnecting_ui(self, attempt: int):
         """Estado intermedio: el watchdog está reintentando."""
-        self.btn_connect.setText(" 🔁 Reconectando…")
+        compact = self._compact_mode
+        self.btn_connect.setText("🔁" if compact else " 🔁 Reconectando…")
+        self.btn_connect.setToolTip(f"Reconectando (intento {attempt})")
         self.btn_connect.setStyleSheet("background-color: #FD7E14; color: white;")
         self.lbl_connection_status.setText(f"🟠 Reconectando (intento {attempt}) ")
         self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
@@ -151,14 +168,15 @@ class MainWindow(QMainWindow):
 
     def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
         """Actualiza el estado visual del botón de transmisión y el timer."""
+        compact = self._compact_mode
         if active:
-            self.btn_record.setText(" ⏹ Detener")
+            self.btn_record.setText("⏹" if compact else " ⏹ Detener")
             self.btn_record.setToolTip("Detener salida en OBS")
             self.btn_record.setStyleSheet(self._record_style_active)
             self.lbl_record_timer.setText(f"🔴 EN VIVO {timecode} ")
             self.lbl_record_timer.setVisible(True)
         else:
-            self.btn_record.setText(" 🔴 Transmitir")
+            self.btn_record.setText("🔴" if compact else " 🔴 Transmitir")
             self.btn_record.setToolTip("Iniciar salida en OBS (Custom Output FFmpeg → UDP)")
             self.btn_record.setStyleSheet(self._record_style_idle)
             self.lbl_record_timer.setVisible(False)

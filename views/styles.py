@@ -20,7 +20,7 @@ LIGHT_THEME_QSS = """
         background-color: #FFFFFF;
         border: 1px solid #DEE2E6;
         border-radius: 6px;
-        margin-top: 25px; /* Reserva espacio en la parte superior para el título */
+        margin-top: 14px; /* Reserva espacio en la parte superior para el título */
     }
 
     QGroupBox::title {
@@ -35,11 +35,11 @@ LIGHT_THEME_QSS = """
 
     /* Botones principales */
     QPushButton {
-        background-color: #0D6EFD; 
+        background-color: #0D6EFD;
         color: #FFFFFF;
         border: none;
         border-radius: 4px;
-        padding: 8px 16px;
+        padding: 5px 12px;
         font-weight: bold;
     }
     QPushButton:hover {
