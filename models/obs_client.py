@@ -617,9 +617,31 @@ class OBSClient:
         Devuelve (ok, msg, scale_pct). scale_pct es siempre 100 en éxito para
         que el flujo de build_scene resetee CAL_SCALE y ninguna llamada
         posterior a move_scene_item aplique una escala vieja.
+
+        Nota: los inputs (sources) de OBS son GLOBALES, no per-scene. Cuando el
+        usuario construye un segundo calendario (ej. mes siguiente) con el
+        mismo `source_name` "CIRCULO", OBS devuelve error 601 al llamar
+        create_input porque el input ya existe. Detectamos ese caso y en su
+        lugar añadimos un scene item que apunta al input existente.
         """
         if not self.client:
             return False, "OBS no está conectado.", None
+
+        # Chequeo previo de escena — si ya existe, mejor mensaje explícito
+        # que un 601 opaco. El usuario debe borrarla en OBS o usar otro nombre.
+        try:
+            existing_scenes = self.list_scene_names() or []
+            if scene_name in existing_scenes:
+                return (
+                    False,
+                    f"La escena «{scene_name}» ya existe en OBS. "
+                    "Bórrala desde OBS o usa un nombre distinto para "
+                    "reconstruirla.",
+                    None,
+                )
+        except Exception:
+            # Si no podemos listar, dejamos que create_scene falle naturalmente.
+            pass
 
         try:
             self.client.create_scene(scene_name)
@@ -627,8 +649,23 @@ class OBSClient:
             clean_bg = os.path.abspath(bg_path).replace('\\', '/')
             clean_source = os.path.abspath(source_path).replace('\\', '/')
 
-            self.client.create_input(scene_name, f"{scene_name}_Fondo", "image_source", {"file": clean_bg}, True)
-            self.client.create_input(scene_name, source_name, "image_source", {"file": clean_source}, True)
+            fondo_name = f"{scene_name}_Fondo"
+            existing_inputs = self.list_input_names() or set()
+
+            # Fondo: el nombre lleva prefijo de escena, así que en la práctica
+            # es único. Aún así lo tratamos con la misma lógica para robustez.
+            self._add_input_or_reuse(
+                scene_name, fondo_name, "image_source",
+                {"file": clean_bg}, existing_inputs,
+            )
+
+            # Marcador: casi siempre existe ya (ej. "CIRCULO" heredado de un
+            # calendario previo). Si existe, reusamos y actualizamos el PNG
+            # por si el usuario cambió la imagen del marcador.
+            self._add_input_or_reuse(
+                scene_name, source_name, "image_source",
+                {"file": clean_source}, existing_inputs,
+            )
 
             response = self.client.get_scene_item_id(scene_name, source_name)
             item_id = response.scene_item_id
@@ -640,7 +677,33 @@ class OBSClient:
             return True, "Escena construida con éxito.", 100
 
         except Exception as e:
+            log.error("build_calendar_scene falló para '%s': %s", scene_name, e)
             return False, f"Error: {str(e)}", None
+
+    def _add_input_or_reuse(self, scene_name, input_name, input_kind,
+                            input_settings, existing_inputs):
+        """Añade un input a la escena. Si ya existe globalmente, en vez de
+        crear uno nuevo (que fallaría con 601), añade un scene item que apunta
+        al input existente y actualiza sus settings (útil cuando el usuario
+        cambió el PNG entre calendarios).
+        """
+        if input_name in existing_inputs:
+            # Ya existe globalmente — solo añadir referencia en la nueva escena.
+            self.client.create_scene_item(scene_name, input_name, True)
+            # Actualizar el file/settings por si el usuario apuntó a otro PNG.
+            try:
+                self.client.set_input_settings(input_name, input_settings, True)
+            except Exception as se:
+                log.warning(
+                    "No se pudo actualizar settings del input existente '%s': %s",
+                    input_name, se,
+                )
+            log.info("Input '%s' ya existía — reutilizado en escena '%s'.",
+                     input_name, scene_name)
+        else:
+            self.client.create_input(
+                scene_name, input_name, input_kind, input_settings, True,
+            )
 
     # --- GRABACIÓN ---
     def start_recording(self):
