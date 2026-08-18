@@ -3,7 +3,6 @@ import os
 import base64
 import logging
 import threading
-from PIL import Image
 
 log = logging.getLogger(__name__)
 
@@ -610,11 +609,14 @@ class OBSClient:
             return False
 
     def build_calendar_scene(self, scene_name, bg_path, source_path, source_name, x_space):
-        """Construye el calendario con anclaje superior izquierdo y ancho auto-ajustado (275px).
+        """Construye el calendario con anclaje superior izquierdo.
 
-        Devuelve (ok, msg, scale_pct). scale_pct es el porcentaje que hay que
-        persistir en CAL_SCALE para que futuras llamadas a move_scene_item no
-        anulen el auto-scale aplicado aquí.
+        El marcador se inserta a escala 100% (tamaño nativo del PNG). El usuario
+        ajusta después con el spinbox "Tamaño del Círculo (Escala)".
+
+        Devuelve (ok, msg, scale_pct). scale_pct es siempre 100 en éxito para
+        que el flujo de build_scene resetee CAL_SCALE y ninguna llamada
+        posterior a move_scene_item aplique una escala vieja.
         """
         if not self.client:
             return False, "OBS no está conectado.", None
@@ -631,23 +633,11 @@ class OBSClient:
             response = self.client.get_scene_item_id(scene_name, source_name)
             item_id = response.scene_item_id
 
-            # Anclaje Top-Left (5)
+            # Anclaje Top-Left (5) para que la posición no salte cuando el
+            # usuario ajuste la escala manualmente.
             self.client.set_scene_item_transform(scene_name, item_id, {"alignment": 5})
 
-            with Image.open(source_path) as img:
-                orig_width, _ = img.size
-
-            # Forzamos los 275px de ancho para el marcador
-            target_width = 275.0
-            auto_scale = target_width / float(orig_width)
-            scale_pct = int(round(auto_scale * 100))
-
-            self.client.set_scene_item_transform(scene_name, item_id, {
-                "scaleX": auto_scale,
-                "scaleY": auto_scale,
-            })
-
-            return True, "Escena construida con éxito.", scale_pct
+            return True, "Escena construida con éxito.", 100
 
         except Exception as e:
             return False, f"Error: {str(e)}", None

@@ -857,9 +857,11 @@ class SceneController:
             self.view.highlight_active_scene(scene["name"])
             log.info("Rotar → '%s' (dur %ds, tipo %s)",
                      scene["name"], scene["duration"], scene.get("tipo", "?"))
-            # Capturar preview 3s después de activar (dar tiempo a renderizar)
+            # Capturar preview 4s después de activar. Media sources pesados
+            # (video con codec grande, imagen de red) pueden tardar >3s en
+            # tener primera frame renderizable; 3s daba muchos errores 702.
             self._pending_preview_scene_id = scene["id"]
-            self.preview_timer.start(3000)
+            self.preview_timer.start(4000)
 
             # Auto-refresh: solo si es escena URL con intervalo definido
             interval = scene.get("refresh_interval_seg") or 0
@@ -905,7 +907,7 @@ class SceneController:
         if not scene:
             return
         source_name = self._input_name_for(scene["tipo"], scene["name"])
-        pixmap = self._grab_pixmap(source_name)
+        pixmap = self._grab_pixmap(source_name, scene_name=scene["name"])
         if pixmap:
             self.thumbnail_cache[scene_id] = pixmap
             self.view.set_row_preview(scene_id, pixmap)
@@ -918,16 +920,25 @@ class SceneController:
         updated = 0
         for scene in self.scenes_list:
             source_name = self._input_name_for(scene["tipo"], scene["name"])
-            pixmap = self._grab_pixmap(source_name)
+            pixmap = self._grab_pixmap(source_name, scene_name=scene["name"])
             if pixmap:
                 self.thumbnail_cache[scene["id"]] = pixmap
                 self.view.set_row_preview(scene["id"], pixmap)
                 updated += 1
         log.info("Previews actualizados: %d/%d escenas", updated, len(self.scenes_list))
 
-    def _grab_pixmap(self, source_name):
-        """Toma screenshot vía OBS y devuelve QPixmap 80x45 o None."""
+    def _grab_pixmap(self, source_name, scene_name=None):
+        """Toma screenshot vía OBS y devuelve QPixmap 80x45 o None.
+
+        Intenta primero el source específico (más rápido). Si falla (error 600
+        porque el source no sigue el naming {name}_Contenido — típico de escenas
+        creadas por el módulo Calendario; o error 702 porque un media source
+        aún no tiene primera frame renderizada), hace fallback al screenshot
+        de la ESCENA COMPLETA — el compositor de OBS es más tolerante.
+        """
         b64 = self.obs_client.get_source_screenshot_base64(source_name, width=160, height=90)
+        if not b64 and scene_name:
+            b64 = self.obs_client.get_source_screenshot_base64(scene_name, width=160, height=90)
         if not b64:
             return None
         try:

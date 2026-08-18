@@ -14,9 +14,16 @@ class CalendarModel:
         total_cells = start_col + ndays
         return (total_cells + 6) // 7  # ceil
 
-    def calculate_position(self, x_start, y_start, x_spacing, y_spacing, target_date=None):
+    def calculate_position(self, x_start, y_start, x_spacing, y_spacing,
+                           target_date=None, dx_row0=0, dy_row0=0):
         """
         Calcula la coordenada (X, Y) exacta para un día en el calendario.
+
+        `dx_row0`/`dy_row0` son compensaciones adicionales que se aplican SOLO
+        cuando el día cae en la fila 0. Se usan para imágenes donde la primera
+        semana parcial está dibujada en una posición ligeramente distinta al
+        slot que le tocaría en un grid perfectamente uniforme (muy común
+        cuando fila 0 tiene solo 1 celda, ej. sábado día 1).
         """
         if target_date is None:
             target_date = datetime.date.today()
@@ -39,5 +46,10 @@ class CalendarModel:
         # Posición final: Origen + (Índice * Espaciado)
         x_pos = x_start + (current_col * x_spacing)
         y_pos = y_start + (current_row * y_spacing)
+
+        # Compensación específica para fila 0 (primera semana parcial).
+        if current_row == 0:
+            x_pos += dx_row0
+            y_pos += dy_row0
 
         return x_pos, y_pos

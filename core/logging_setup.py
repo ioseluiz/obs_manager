@@ -48,4 +48,11 @@ def setup_logging(level=logging.INFO):
     console.setFormatter(fmt)
     root.addHandler(console)
 
+    # obsws_python.reqs emite un ERROR con traceback cada vez que un request
+    # devuelve un status != 100 (p.ej. GetSourceScreenshot 702 "Failed to render
+    # screenshot" cuando el media source aún no tiene primera frame). Nuestros
+    # wrappers en OBSClient ya capturan la excepción y hacen fallback/log DEBUG.
+    # Silenciar la librería a WARNING evita duplicar el ruido en el log.
+    logging.getLogger("obsws_python.reqs").setLevel(logging.WARNING)
+
     root._obs_manager_configured = True

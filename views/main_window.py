@@ -1,13 +1,14 @@
 import sys
 from pathlib import Path
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QTabWidget,
-                             QToolBar, QStatusBar, QPushButton, QLabel,
-                             QApplication)
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QTabWidget, QToolBar, QStatusBar, QPushButton,
+                             QLabel, QApplication)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap
 
 _BASE = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parent.parent
 _ICON_PATH = _BASE / "app_icon.ico"
+_LOGO_PATH = _BASE / "assets" / "CP_hor_800px (1).png"
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -100,6 +101,12 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("Listo")
 
+        # Logo ACP + crédito (al inicio del área de permanent widgets, para que
+        # queden al mismo nivel horizontal que Canvas / Conexión y no los tape
+        # ningún mensaje temporal). El logo es blanco sobre transparente, así
+        # que el contenedor lleva fondo oscuro para dar contraste.
+        self._build_acp_credit()
+
         # Timer de grabación (permanent widget, oculto por defecto)
         self.lbl_record_timer = QLabel("")
         self.lbl_record_timer.setStyleSheet("color: #DC3545; font-weight: bold;")
@@ -118,6 +125,42 @@ class MainWindow(QMainWindow):
         self.lbl_connection_status = QLabel("Desconectado ")
         self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
         self.statusBar().addPermanentWidget(self.lbl_connection_status)
+
+    def _build_acp_credit(self):
+        # Logo a color sobre transparente — sin fondo propio, hereda el color
+        # de la ventana para integrarse con la UI.
+        container = QWidget()
+
+        row = QHBoxLayout(container)
+        row.setContentsMargins(6, 2, 8, 2)
+        row.setSpacing(8)
+
+        logo = QLabel()
+        pix = QPixmap(str(_LOGO_PATH))
+        if not pix.isNull():
+            # Status bar típica ~22px; escalamos el logo a 20px de alto.
+            logo.setPixmap(pix.scaledToHeight(
+                20, Qt.TransformationMode.SmoothTransformation))
+        else:
+            logo.setText("ACP")
+            logo.setStyleSheet("color: #0D3B66; font-weight: bold;")
+        logo.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
+        # Texto en azul marino igual al del logo — contrasta con el gris claro
+        # de la ventana y arma con el resto de la paleta (Conectar #0D6EFD).
+        credit = QLabel("División de Ingeniería - INI")
+        credit.setStyleSheet(
+            "color: #0D3B66; font-size: 11px; font-weight: 600; "
+            "letter-spacing: 0.3px;"
+        )
+        credit.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
+        row.addWidget(logo)
+        row.addWidget(credit)
+
+        # insertPermanentWidget(0, ...) → queda a la izquierda del grupo de
+        # widgets permanentes (Canvas / Conexión), al mismo nivel horizontal.
+        self.statusBar().insertPermanentWidget(0, container)
 
     def set_connection_ui(self, connected: bool):
         """Cambia visualmente la UI dependiendo de si OBS está conectado o no."""
