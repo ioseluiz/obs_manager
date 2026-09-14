@@ -149,6 +149,7 @@ class OBSClient:
                 return False
             try:
                 self.client.set_current_program_scene(scene_name)
+                log.info("change_scene OK → %r", scene_name)
                 return True
             except Exception as e:
                 log.warning("change_scene falló para %r: %s", scene_name, e)
@@ -603,8 +604,15 @@ class OBSClient:
             self.client.set_input_settings(source_name, {"text": str(text)}, True)
             return True, "OK"
         except Exception as e:
-            log.warning("set_text_source_text falló para '%s': %s", source_name, e)
-            return False, str(e)
+            msg = str(e)
+            # "code 600" = source inexistente. Es esperado durante el
+            # arranque si el countdown apunta a text sources que el user
+            # aún no creó en OBS. Bajamos a DEBUG para no ensuciar el log.
+            if "600" in msg or "does not exist" in msg.lower():
+                log.debug("set_text_source_text: source '%s' inexistente (600)", source_name)
+            else:
+                log.warning("set_text_source_text falló para '%s': %s", source_name, msg)
+            return False, msg
 
     def refresh_browser_source(self, input_name):
         """Fuerza F5 sobre un browser_source. Preserva cookies/sesión."""

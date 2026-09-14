@@ -693,10 +693,14 @@ class SceneController:
         self.view.lbl_date.setText(date_str)
 
     def start_rotation(self):
+        log.info("start_rotation invocado (scenes=%d, obs_conn=%s)",
+                 len(self.scenes_list), bool(self.obs_client.client))
         if not self.scenes_list:
+            log.warning("start_rotation abortado: scenes_list vacía")
             QMessageBox.warning(self.view, "Error", "No hay escenas en la lista.")
             return
         if not self.obs_client.client:
+            log.warning("start_rotation abortado: OBS no conectado")
             QMessageBox.warning(self.view, "Error", "Conecta OBS primero.")
             return
 
