@@ -23,11 +23,14 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
+
+
+_ROTATOR_POLL_MS = 500
 
 
 class CanalPrincipalDetailView(QWidget):
@@ -47,6 +50,16 @@ class CanalPrincipalDetailView(QWidget):
         self._is_recording = False
         self._setup_ui()
         self._connect_signals()
+        # Poll el estado del rotador desde SceneController para reflejarlo
+        # aquí: SceneView (donde vive el feedback original) está en modo
+        # compacto y sus widgets ocultos, así que este panel se encarga
+        # de mostrar el estado.
+        self._rotator_poll = QTimer(self)
+        self._rotator_poll.setInterval(_ROTATOR_POLL_MS)
+        self._rotator_poll.timeout.connect(self._refresh_rotator_status)
+        self._rotator_poll.start()
+        # Primer refresh inmediato para no esperar 500ms al mostrar el widget
+        self._refresh_rotator_status()
 
     # ------------------------------------------------------------------
     # UI
@@ -78,10 +91,16 @@ class CanalPrincipalDetailView(QWidget):
         self.lbl_timecode = QLabel("")
         self.lbl_timecode.setStyleSheet("color: #495057; font-family: monospace;")
 
+        # Estado del rotador global (running/paused/stopped + escena activa)
+        # — se actualiza por poll del SceneController cada 500 ms.
+        self.lbl_rotator = QLabel("Rotador: Detenido")
+        self.lbl_rotator.setStyleSheet("color: #495057; font-weight: bold;")
+
         header_layout.addWidget(self.lbl_nombre)
         header_layout.addWidget(self.lbl_url)
         header_layout.addWidget(self.lbl_status)
         header_layout.addWidget(self.lbl_timecode)
+        header_layout.addWidget(self.lbl_rotator)
         root.addWidget(header_frame)
 
         # Controles
@@ -185,3 +204,42 @@ class CanalPrincipalDetailView(QWidget):
         # Delegamos al MainController que sabe cómo manejar el estado real
         # (StartRecord/StopRecord de OBS, timer, sincronización).
         self._on_transmit_toggle()
+
+    # ------------------------------------------------------------------
+    # Poll del estado del rotador legacy
+    # ------------------------------------------------------------------
+
+    def _refresh_rotator_status(self) -> None:
+        """Lee el estado del SceneController y refleja: lbl_rotator + btn_pause."""
+        sc = self._scene_controller
+        # Atributos que expone SceneController: timer (QTimer), is_paused (bool),
+        # active_scene_name (str), time_left (int).
+        try:
+            timer = getattr(sc, "timer", None)
+            is_running = bool(timer is not None and timer.isActive())
+            is_paused = bool(getattr(sc, "is_paused", False))
+            active_name = getattr(sc, "active_scene_name", None) or ""
+            time_left = getattr(sc, "time_left", None)
+        except Exception:
+            return  # scene_controller aún no está listo o no expone estado
+
+        if is_paused:
+            self.lbl_rotator.setText(
+                f"Rotador: ⏸ Pausado en «{active_name}»"
+                + (f" ({time_left}s restantes)" if time_left is not None else "")
+            )
+            self.lbl_rotator.setStyleSheet("font-weight: bold; color: #FD7E14;")
+        elif is_running:
+            self.lbl_rotator.setText(
+                f"Rotador: ▶ Reproduciendo «{active_name}»"
+                + (f" ({time_left}s)" if time_left is not None else "")
+            )
+            self.lbl_rotator.setStyleSheet("font-weight: bold; color: #198754;")
+        else:
+            self.lbl_rotator.setText("Rotador: ⏹ Detenido")
+            self.lbl_rotator.setStyleSheet("font-weight: bold; color: #6C757D;")
+
+        # Sincronizar el checkable btn_pause con el estado real
+        self.btn_pause.blockSignals(True)
+        self.btn_pause.setChecked(is_paused)
+        self.btn_pause.blockSignals(False)
