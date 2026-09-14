@@ -382,3 +382,62 @@ class CanalController(QObject):
         state = self._rotators.get(canal_id)
         if state:
             self._advance(state)
+
+    # ------------------------------------------------------------------
+    # Ciclo de vida (Fase 1e)
+    # ------------------------------------------------------------------
+
+    def apply_all_habilitados(self) -> list[dict[str, Any]]:
+        """Aplica en OBS todos los canales del modelo con habilitado=True.
+
+        Idempotente — llamable en cada conexión / reconexión con OBS. Los
+        canales apagados se ignoran (no se materializan en OBS hasta que el
+        user los habilite explícitamente).
+
+        Retorna una lista de dicts por canal procesado:
+            [{"canal_id": int, "nombre": str, "ok": bool, "msg": str}, ...]
+        """
+        results: list[dict[str, Any]] = []
+        for canal in self.canal_model.get_all_canales():
+            if not canal["habilitado"]:
+                continue
+            ok, msg = self.apply_canal(int(canal["id"]))
+            results.append({
+                "canal_id": int(canal["id"]),
+                "nombre": canal["nombre"],
+                "ok": ok,
+                "msg": msg,
+            })
+            if ok:
+                log.info("Canal '%s' auto-aplicado a OBS.", canal["nombre"])
+            else:
+                log.warning(
+                    "Canal '%s' no se pudo auto-aplicar: %s",
+                    canal["nombre"], msg,
+                )
+        return results
+
+    def shutdown_keeping_filters(self) -> None:
+        """Detiene rotadores en memoria sin tocar el estado en OBS.
+
+        Regla firme (memoria del proyecto): al cerrar la app, los filtros
+        de canal quedan habilitados para que las pantallas remotas sigan
+        recibiendo el último frame. No se llama a set_source_filter_enabled,
+        no se ocultan scene items, no se remueve la escena contenedora.
+
+        Solo se paran los QTimers del rotador para permitir que la app
+        cierre limpia (sin que un tick disparado durante el cierre intente
+        hablar con OBS).
+        """
+        for state in self._rotators.values():
+            if state.timer is not None:
+                try:
+                    state.timer.stop()
+                except Exception:
+                    pass
+                state.timer = None
+        log.info(
+            "CanalController shutdown limpio; %d rotador(es) detenidos, "
+            "filtros de OBS preservados.",
+            len(self._rotators),
+        )

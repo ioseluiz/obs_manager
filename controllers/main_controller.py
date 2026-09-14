@@ -186,6 +186,8 @@ class MainController:
         self._sync_recording_state()
         # Poblar combos del módulo de contadores con las escenas / text sources de OBS
         self.countdown_controller.refresh_from_obs()
+        # Auto-aplicar canales habilitados a OBS (Fase 1e)
+        self._auto_apply_canales()
 
     def _sync_recording_state(self):
         status = self.obs_client.get_recording_status()
@@ -227,11 +229,27 @@ class MainController:
         self._sync_recording_state()
         # Refrescar combos del módulo de contadores
         self.countdown_controller.refresh_from_obs()
+        # Re-aplicar canales habilitados — OBS pudo haber reiniciado y
+        # perdido las escenas contenedoras (Fase 1e).
+        self._auto_apply_canales()
         # Reanudar rotador si estaba activo antes de la caída
         if self._rotator_was_running:
             self._rotator_was_running = False
             self.scene_controller.rotate_to_next_scene()
             log.info("Rotador reanudado tras reconexión.")
+
+    def _auto_apply_canales(self):
+        """Aplica en OBS los canales habilitados del modelo (Fase 1e)."""
+        try:
+            results = self.canal_controller.apply_all_habilitados()
+        except Exception as e:
+            log.warning("Auto-apply de canales falló: %s", e)
+            return
+        if results:
+            ok = sum(1 for r in results if r["ok"])
+            log.info("Canales auto-aplicados a OBS: %d/%d.", ok, len(results))
+            if hasattr(self, "canal_view") and self.canal_view is not None:
+                self.canal_view.refresh()
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
@@ -496,7 +514,12 @@ class MainController:
         self.connect_to_obs()
 
     def shutdown(self):
-        """Detiene threads antes de cerrar la app."""
+        """Detiene threads antes de cerrar la app.
+
+        Regla firme para canales (Fase 1e): NO se deshabilitan filters ni
+        se remueven escenas — las pantallas remotas siguen recibiendo el
+        último frame del canal aunque la app se cierre.
+        """
         try:
             self._record_timer.stop()
         except Exception as e:
@@ -506,3 +529,7 @@ class MainController:
             self.watchdog.wait(2000)
         except Exception as e:
             log.warning("Error deteniendo watchdog: %s", e)
+        try:
+            self.canal_controller.shutdown_keeping_filters()
+        except Exception as e:
+            log.warning("Error en shutdown de canal_controller: %s", e)
