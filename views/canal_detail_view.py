@@ -237,8 +237,14 @@ class CanalDetailView(QWidget):
             self._render_empty()
             return
         self.lbl_nombre.setText(canal["nombre"])
-        self.lbl_url.setText(f"→ {canal['url_destino']}   ·   encoder: "
-                             f"{canal['encoder']} @ {canal['bitrate_kbps']} kbps")
+        w = int(canal.get("output_width") or 1920)
+        h = int(canal.get("output_height") or 1080)
+        fps = int(canal.get("output_fps") or 30)
+        self.lbl_url.setText(
+            f"→ {canal['url_destino']}   ·   "
+            f"{canal['encoder']} @ {canal['bitrate_kbps']} kbps   ·   "
+            f"{w}×{h} @ {fps}fps"
+        )
         # Bloquear signal temporalmente para no rebotar el toggle
         self.btn_transmit.blockSignals(True)
         self.btn_transmit.setChecked(bool(canal["habilitado"]))
