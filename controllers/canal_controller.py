@@ -570,12 +570,19 @@ class CanalController(QObject):
         if scene_item is None:
             log.warning("Item %d no tiene sceneItemId; se salta.", item_id)
             return
+        log.info("Canal '%s' → item_id=%d visible (sceneItemId=%d)",
+                 state.scene_name, item_id, scene_item)
         self._set_scene_item(state, scene_item, True)
 
     def _show_placeholder(self, state: _RotatorState) -> None:
         if state.placeholder_scene_item_id is None:
+            log.warning("Canal '%s': placeholder solicitado pero no existe "
+                        "(sceneItemId None) — VLC verá stream sin nada",
+                        state.scene_name)
             state.placeholder_visible = False
             return
+        log.info("Canal '%s' → placeholder visible (negro) — nada en ventana "
+                 "horaria o playlist vacía", state.scene_name)
         self._set_scene_item(state, state.placeholder_scene_item_id, True)
         state.placeholder_visible = True
 
