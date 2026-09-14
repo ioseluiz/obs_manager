@@ -224,6 +224,9 @@ class ProduccionView(QWidget):
                 nombre=data["nombre"], url_destino=data["url_destino"],
                 encoder=data["encoder"], bitrate_kbps=data["bitrate_kbps"],
                 habilitado=data["habilitado"], descripcion=data["descripcion"],
+                output_width=data["output_width"],
+                output_height=data["output_height"],
+                output_fps=data["output_fps"],
             )
         except Exception as e:
             QMessageBox.critical(self, "Error al crear canal", str(e))
@@ -256,6 +259,9 @@ class ProduccionView(QWidget):
                 nombre=data["nombre"], url_destino=data["url_destino"],
                 encoder=data["encoder"], bitrate_kbps=data["bitrate_kbps"],
                 habilitado=data["habilitado"], descripcion=data["descripcion"],
+                output_width=data["output_width"],
+                output_height=data["output_height"],
+                output_fps=data["output_fps"],
             )
         except Exception as e:
             QMessageBox.critical(self, "Error al editar canal", str(e))
