@@ -56,6 +56,25 @@ def build_settings(canal: dict[str, Any]) -> dict[str, Any]:
         "bitrate": int(canal.get("bitrate_kbps", 2500)),
         "rate_control": "CBR",
         "scale_type": 3,
+        # Streaming UDP requiere keyframes frecuentes: un reproductor
+        # recién conectado necesita un keyframe para arrancar el decode.
+        # Con el default de x264 (~250 frames), a 60fps son ~4s y VLC
+        # muestra cuadro negro durante ese tiempo. 2s balancea decode
+        # rápido y bitrate razonable.
+        "keyint_sec": 2,
+        # Perfil H.264 estable: "high" es el default de OBS streaming y
+        # lo decodifica cualquier reproductor. Sin este setting, la UI
+        # del plugin muestra "profile: none" y el encoder puede negociar
+        # un perfil que no matchee lo que espera el reproductor.
+        "profile": "high",
+        # zerolatency reduce el buffer del encoder para que los frames
+        # salgan de inmediato. Sin esto, x264 puede acumular frames en
+        # su lookahead antes de emitirlos, empeorando el "arranque
+        # negro" en el reproductor.
+        "tune": "zerolatency",
+        # preset veryfast: default de streaming en OBS. Equilibrio
+        # CPU/calidad razonable para bitrate 2500 kbps a 1080p.
+        "preset": "veryfast",
     }
 
     # Audio independiente por canal si el user lo pidió.
