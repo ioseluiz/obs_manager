@@ -143,6 +143,15 @@ class CanalDetailView(QWidget):
             "Útil cuando VLC recibe stream pero ve negro."
         )
         toolbar.addWidget(self.btn_diagnose)
+
+        self.btn_preview = QPushButton("🎥 Preview")
+        self.btn_preview.setMinimumHeight(32)
+        self.btn_preview.setToolTip(
+            "Abre una ventana con la salida UDP del canal. Usa Python + ffplay "
+            "vía stdin para esquivar el firewall corporativo que suele bloquear "
+            "UDP inbound a VLC/ffplay directamente. Requiere ffplay en PATH."
+        )
+        toolbar.addWidget(self.btn_preview)
         root.addLayout(toolbar)
 
         # Playlist frame
@@ -201,6 +210,7 @@ class CanalDetailView(QWidget):
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_apply.clicked.connect(self._on_apply)
         self.btn_diagnose.clicked.connect(self._on_diagnose)
+        self.btn_preview.clicked.connect(self._on_preview)
 
         self.btn_add_item.clicked.connect(self._on_add_item)
         self.btn_remove_item.clicked.connect(self._on_remove_item)
@@ -255,9 +265,9 @@ class CanalDetailView(QWidget):
     def _set_controls_enabled(self, enabled: bool):
         for w in (self.btn_transmit, self.btn_play, self.btn_prev,
                   self.btn_pause, self.btn_next, self.btn_stop,
-                  self.btn_apply, self.btn_diagnose, self.btn_add_item,
-                  self.btn_remove_item, self.btn_up_item, self.btn_down_item,
-                  self.btn_edit_item):
+                  self.btn_apply, self.btn_diagnose, self.btn_preview,
+                  self.btn_add_item, self.btn_remove_item, self.btn_up_item,
+                  self.btn_down_item, self.btn_edit_item):
             w.setEnabled(enabled)
 
     def _refresh_status_only(self):
@@ -423,6 +433,64 @@ class CanalDetailView(QWidget):
             return
         self.canal_changed.emit(self._canal_id)
         self.refresh()
+
+    def _on_preview(self):
+        """Lanza play_canal_local.py como subprocess para preview del UDP.
+
+        El firewall corporativo suele bloquear inbound UDP para vlc.exe/
+        ffplay.exe directamente. Este script bindea con Python (ya
+        autorizado) y pipea al reproductor por stdin — atraviesa el
+        firewall sin necesitar privilegios de admin.
+        """
+        if self._canal_id is None:
+            return
+        canal = self.canal_model.get_canal(self._canal_id)
+        if not canal:
+            return
+        # Parsear el puerto del URL destino udp://host:puerto
+        url = canal.get("url_destino") or ""
+        try:
+            port = int(url.rsplit(":", 1)[-1].split("?", 1)[0].split("/", 1)[0])
+        except (ValueError, IndexError):
+            QMessageBox.warning(
+                self, "Preview",
+                f"No pude extraer el puerto del URL destino:\n{url}",
+            )
+            return
+
+        import shutil, subprocess, sys
+        from pathlib import Path
+        if not shutil.which("ffplay"):
+            QMessageBox.warning(
+                self, "Preview",
+                "ffplay no está en el PATH.\n\n"
+                "Instalar como admin: `winget install Gyan.FFmpeg`\n"
+                "Después reiniciar la app.",
+            )
+            return
+
+        # scripts/play_canal_local.py está en el mismo repo
+        script = Path(__file__).resolve().parent.parent / "scripts" / "play_canal_local.py"
+        if not script.exists():
+            QMessageBox.warning(
+                self, "Preview",
+                f"Falta el script:\n{script}",
+            )
+            return
+
+        # Lanzamos con el mismo python que corre la app (venv), en una
+        # ventana nueva de consola para que el user pueda cerrarla con
+        # Ctrl+C y ver mensajes de ffplay si algo falla.
+        try:
+            creation_flags = 0
+            if sys.platform == "win32":
+                creation_flags = subprocess.CREATE_NEW_CONSOLE
+            subprocess.Popen(
+                [sys.executable, str(script), str(port)],
+                creationflags=creation_flags,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Preview", f"No se pudo lanzar ffplay:\n{e}")
 
     def _on_diagnose(self):
         """Muestra los settings efectivos del filtro udp_out en un diálogo.
