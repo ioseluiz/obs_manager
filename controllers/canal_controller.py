@@ -20,13 +20,42 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import datetime
+from typing import Any, Callable
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from core.output_adapter import OutputAdapter, FILTER_NAME
+from views.schedule_widget import is_scene_active_now
 
 log = logging.getLogger(__name__)
+
+# Cuando ningún item del canal está en su ventana horaria, el rotador
+# muestra un placeholder y agenda el próximo chequeo en este intervalo.
+_RETRY_MS_WHEN_NO_ACTIVE = 60_000  # 60s — matches the legacy rotator behavior
+
+# Nombre del input color-source-black que sirve de placeholder en cada
+# canal container. Se crea al aplicar el canal si no existe.
+_PLACEHOLDER_SUFFIX = "__placeholder"
+
+
+@dataclass
+class _PlaylistEntry:
+    """Un item del canal + info de schedule inlineada para no re-consultar
+    scene_model en cada tick del rotador."""
+    item_id: int  # canal_items.id
+    duration_seg: int
+    active_days: int  # bitmask (bit 0 = Lunes)
+    time_start: str | None  # "HH:MM" o None
+    time_end: str | None
+
+    def as_scene_dict(self) -> dict[str, Any]:
+        """Envelope que espera is_scene_active_now."""
+        return {
+            "active_days": self.active_days,
+            "active_time_start": self.time_start,
+            "active_time_end": self.time_end,
+        }
 
 
 @dataclass
@@ -36,8 +65,7 @@ class _RotatorState:
     scene_name: str
     # canal_item_id -> obs sceneItemId (para SetSceneItemEnabled)
     item_to_scene_item: dict[int, int] = field(default_factory=dict)
-    # Orden efectivo: lista de (canal_item_id, duration_seg)
-    playlist: list[tuple[int, int]] = field(default_factory=list)
+    playlist: list[_PlaylistEntry] = field(default_factory=list)
     active_index: int = -1
     timer: QTimer | None = None
     # Pausa/resume: cuando is_paused=True, remaining_ms guarda el tiempo
@@ -45,6 +73,11 @@ class _RotatorState:
     # timer con ese remaining. Ver pause_rotator/resume_rotator.
     is_paused: bool = False
     remaining_ms: int = 0
+    # Scene item id del placeholder (color source negro) dentro del
+    # container. Se muestra cuando ningún item está en ventana horaria.
+    placeholder_scene_item_id: int | None = None
+    # True si el placeholder es lo que está visible ahora mismo.
+    placeholder_visible: bool = False
 
 
 class CanalController(QObject):
@@ -67,6 +100,12 @@ class CanalController(QObject):
         self.scene_model = scene_model
         self.obs_client = obs_client
         self._rotators: dict[int, _RotatorState] = {}
+        # Override para tests: función que devuelve el "now" que consulta
+        # el rotador al filtrar por schedule. En runtime = datetime.now.
+        self._time_provider: Callable[[], datetime] | None = None
+
+    def _now(self) -> datetime:
+        return self._time_provider() if self._time_provider else datetime.now()
 
     # ------------------------------------------------------------------
     # Utilidades internas
@@ -94,8 +133,10 @@ class CanalController(QObject):
     def _get_effective_items(self, canal_id: int) -> list[dict[str, Any]]:
         """Join en Python entre canal_items y secuencias.
 
-        Devuelve [{canal_item_id, secuencia_nombre, duration_seg}, ...]. Items
-        que referencian secuencias inexistentes se saltan con warning.
+        Devuelve una lista con, por item:
+            canal_item_id, secuencia_nombre, duration_seg,
+            active_days, active_time_start, active_time_end
+        Items que referencian secuencias inexistentes se saltan con warning.
         """
         items = self.canal_model.get_items(canal_id)
         result = []
@@ -112,6 +153,11 @@ class CanalController(QObject):
                 "canal_item_id": it["id"],
                 "secuencia_nombre": seq["name"],
                 "duration_seg": int(duration),
+                # Schedule heredado de la secuencia — el canal_item lo respeta
+                # sin poder overridearlo (R-2).
+                "active_days": int(seq.get("active_days") or 127),
+                "active_time_start": seq.get("active_time_start"),
+                "active_time_end": seq.get("active_time_end"),
             })
         return result
 
@@ -144,15 +190,17 @@ class CanalController(QObject):
             return False, f"create_scene falló: {e}"
 
     def _reconcile_scene_items(self, scene_name: str, effective_items: list[dict]
-                               ) -> dict[int, int]:
+                               ) -> tuple[dict[int, int], int | None]:
         """Wipe-and-rebuild: elimina scene items existentes y los recrea desde
-        `effective_items` (en orden). Devuelve mapping canal_item_id → sceneItemId.
+        `effective_items` (en orden), más un scene item placeholder al final.
 
-        Los items se crean deshabilitados. El rotador después activa uno a la vez.
+        Devuelve (mapping canal_item_id → sceneItemId, placeholder_scene_item_id).
+        Todos los items se crean deshabilitados. El rotador después activa uno
+        a la vez (o el placeholder si nada está en ventana).
         """
         client = self._raw_client()
 
-        # 1. Wipe existentes (item_ids son locales a la scene)
+        # 1. Wipe existentes
         try:
             current = client.get_scene_item_list(scene_name).scene_items
         except Exception as e:
@@ -164,7 +212,7 @@ class CanalController(QObject):
             except Exception as e:
                 log.warning("remove_scene_item %d falló: %s", si["sceneItemId"], e)
 
-        # 2. Recrear en orden, deshabilitados
+        # 2. Recrear items en orden, deshabilitados
         mapping: dict[int, int] = {}
         for eff in effective_items:
             try:
@@ -177,7 +225,40 @@ class CanalController(QObject):
                     "create_scene_item(%s, %s) falló: %s",
                     scene_name, eff["secuencia_nombre"], e,
                 )
-        return mapping
+
+        # 3. Placeholder (color source negro) — se muestra cuando nada está
+        # en su ventana horaria. Se crea el input si no existe (idempotente
+        # mediante try/except).
+        placeholder_input = f"{scene_name}{_PLACEHOLDER_SUFFIX}"
+        try:
+            client.create_input(
+                scene_name, placeholder_input, "color_source_v3",
+                {"color": 0xFF000000, "width": 1920, "height": 1080}, False,
+            )
+            # create_input ya crea la scene item; obtener su id via get_scene_item_id
+            try:
+                placeholder_sid = int(
+                    client.get_scene_item_id(scene_name, placeholder_input).scene_item_id
+                )
+            except Exception:
+                placeholder_sid = None
+        except Exception as e:
+            # Ya existía: crear scene item que referencia el input existente
+            msg = str(e).lower()
+            if "already exists" in msg or "600" in msg:
+                try:
+                    resp = client.create_scene_item(
+                        scene_name, placeholder_input, enabled=False,
+                    )
+                    placeholder_sid = int(resp.scene_item_id)
+                except Exception as e2:
+                    log.warning("No se pudo crear scene item de placeholder: %s", e2)
+                    placeholder_sid = None
+            else:
+                log.warning("create_input placeholder falló: %s", e)
+                placeholder_sid = None
+
+        return mapping, placeholder_sid
 
     # ------------------------------------------------------------------
     # API pública — orquestación
@@ -197,7 +278,9 @@ class CanalController(QObject):
                 return False, msg
 
             effective_items = self._get_effective_items(canal_id)
-            mapping = self._reconcile_scene_items(canal["nombre"], effective_items)
+            mapping, placeholder_sid = self._reconcile_scene_items(
+                canal["nombre"], effective_items,
+            )
 
             adapter = self._adapter()
             ok, msg = adapter.apply(canal)
@@ -211,9 +294,18 @@ class CanalController(QObject):
             state.scene_name = canal["nombre"]
             state.item_to_scene_item = mapping
             state.playlist = [
-                (e["canal_item_id"], e["duration_seg"]) for e in effective_items
+                _PlaylistEntry(
+                    item_id=e["canal_item_id"],
+                    duration_seg=e["duration_seg"],
+                    active_days=e["active_days"],
+                    time_start=e["active_time_start"],
+                    time_end=e["active_time_end"],
+                )
+                for e in effective_items
             ]
             state.active_index = -1
+            state.placeholder_scene_item_id = placeholder_sid
+            state.placeholder_visible = False
             self._rotators[canal_id] = state
 
         # Si el canal está habilitado, arranca la rotación
@@ -280,25 +372,26 @@ class CanalController(QObject):
     # ------------------------------------------------------------------
 
     def start_rotator(self, canal_id: int) -> None:
-        """Arranca el ciclo del rotador de este canal si tiene items."""
+        """Arranca el ciclo del rotador de este canal.
+
+        Si la playlist está vacía o todos los items están fuera de ventana
+        horaria, _advance mostrará el placeholder y agendará re-check.
+        """
         state = self._rotators.get(canal_id)
         if not state:
             log.warning("start_rotator sin estado para canal %d; ¿faltó apply?",
                         canal_id)
             return
-        if not state.playlist:
-            log.info("start_rotator canal %d sin items — nada que rotar.",
-                     canal_id)
-            return
         # Reinicio limpio si ya había timer corriendo
         if state.timer is not None:
             state.timer.stop()
-        # Arranca en el primer item
+        # _advance resuelve empty playlist / all-out-of-schedule mostrando
+        # el placeholder — no cortar acá.
         state.active_index = -1
         self._advance(state)
 
     def stop_rotator(self, canal_id: int) -> None:
-        """Detiene el timer y oculta todos los items del canal."""
+        """Detiene el timer y oculta todos los items del canal (incluye placeholder)."""
         state = self._rotators.get(canal_id)
         if not state:
             return
@@ -308,6 +401,8 @@ class CanalController(QObject):
         state.is_paused = False
         state.remaining_ms = 0
         if not self._connected:
+            state.active_index = -1
+            state.placeholder_visible = False
             return
         with self._lock():
             client = self._raw_client()
@@ -318,7 +413,16 @@ class CanalController(QObject):
                     )
                 except Exception as e:
                     log.debug("hide scene item %d falló: %s", si_id, e)
+            # También ocultar placeholder
+            if state.placeholder_scene_item_id is not None:
+                try:
+                    client.set_scene_item_enabled(
+                        state.scene_name, state.placeholder_scene_item_id, False,
+                    )
+                except Exception as e:
+                    log.debug("hide placeholder falló: %s", e)
         state.active_index = -1
+        state.placeholder_visible = False
 
     def pause_rotator(self, canal_id: int) -> bool:
         """Congela la rotación en el item actual sin ocultarlo.
@@ -396,46 +500,97 @@ class CanalController(QObject):
         return True
 
     def _advance(self, state: _RotatorState) -> None:
-        """Oculta el item activo, muestra el siguiente, agenda el próximo tick."""
+        """Muestra el siguiente item en su ventana horaria, o el placeholder
+        si nada está activo. Agenda el próximo tick."""
         if not state.playlist:
+            # Sin items → placeholder si existe, sin reintentar.
+            self._hide_all_items(state)
+            self._show_placeholder(state)
+            self._ensure_timer(state)
             return
 
-        # Ocultar activo (si había uno)
-        if 0 <= state.active_index < len(state.playlist):
-            prev_item_id = state.playlist[state.active_index][0]
-            prev_scene_item = state.item_to_scene_item.get(prev_item_id)
-            if prev_scene_item is not None and self._connected:
-                with self._lock():
-                    try:
-                        self._raw_client().set_scene_item_enabled(
-                            state.scene_name, prev_scene_item, False,
-                        )
-                    except Exception as e:
-                        log.debug("hide previous item falló: %s", e)
+        now = self._now()
 
-        # Avanzar
-        state.active_index = (state.active_index + 1) % len(state.playlist)
-        next_item_id, duration_seg = state.playlist[state.active_index]
-        next_scene_item = state.item_to_scene_item.get(next_item_id)
-        if next_scene_item is None:
-            log.warning("Item %d no tiene sceneItemId; se salta.", next_item_id)
+        # Buscar el siguiente item que esté en su ventana horaria,
+        # empezando por (active_index + 1) y dando la vuelta.
+        n = len(state.playlist)
+        start = state.active_index if state.active_index >= 0 else -1
+        found: int | None = None
+        for offset in range(1, n + 1):
+            candidate = (start + offset) % n
+            entry = state.playlist[candidate]
+            if is_scene_active_now(entry.as_scene_dict(), now):
+                found = candidate
+                break
+
+        # Ocultar activo previo (item o placeholder)
+        self._hide_current(state)
+
+        if found is None:
+            # Ningún item en ventana → placeholder + retry en 60s
+            self._show_placeholder(state)
+            state.active_index = -1
+            self._ensure_timer(state)
+            state.timer.start(_RETRY_MS_WHEN_NO_ACTIVE)
             return
 
-        if self._connected:
-            with self._lock():
-                try:
-                    self._raw_client().set_scene_item_enabled(
-                        state.scene_name, next_scene_item, True,
-                    )
-                except Exception as e:
-                    log.warning("show next item falló: %s", e)
+        # Mostrar el item encontrado
+        state.active_index = found
+        entry = state.playlist[found]
+        self._show_item(state, entry.item_id)
+        state.placeholder_visible = False
+        self._ensure_timer(state)
+        state.timer.start(max(1, int(entry.duration_seg)) * 1000)
 
-        # Agendar siguiente tick
+    def _ensure_timer(self, state: _RotatorState) -> None:
         if state.timer is None:
             state.timer = QTimer(self)
             state.timer.setSingleShot(True)
             state.timer.timeout.connect(lambda s=state: self._advance(s))
-        state.timer.start(max(1, int(duration_seg)) * 1000)
+
+    def _hide_current(self, state: _RotatorState) -> None:
+        """Oculta el item activo (si había uno) o el placeholder."""
+        if state.placeholder_visible and state.placeholder_scene_item_id is not None:
+            self._set_scene_item(state, state.placeholder_scene_item_id, False)
+            state.placeholder_visible = False
+            return
+        if 0 <= state.active_index < len(state.playlist):
+            item_id = state.playlist[state.active_index].item_id
+            scene_item = state.item_to_scene_item.get(item_id)
+            if scene_item is not None:
+                self._set_scene_item(state, scene_item, False)
+
+    def _hide_all_items(self, state: _RotatorState) -> None:
+        """Oculta todos los scene items del canal (no el placeholder)."""
+        for si_id in state.item_to_scene_item.values():
+            self._set_scene_item(state, si_id, False)
+
+    def _show_item(self, state: _RotatorState, item_id: int) -> None:
+        scene_item = state.item_to_scene_item.get(item_id)
+        if scene_item is None:
+            log.warning("Item %d no tiene sceneItemId; se salta.", item_id)
+            return
+        self._set_scene_item(state, scene_item, True)
+
+    def _show_placeholder(self, state: _RotatorState) -> None:
+        if state.placeholder_scene_item_id is None:
+            state.placeholder_visible = False
+            return
+        self._set_scene_item(state, state.placeholder_scene_item_id, True)
+        state.placeholder_visible = True
+
+    def _set_scene_item(self, state: _RotatorState, scene_item_id: int,
+                         enabled: bool) -> None:
+        if not self._connected:
+            return
+        with self._lock():
+            try:
+                self._raw_client().set_scene_item_enabled(
+                    state.scene_name, scene_item_id, enabled,
+                )
+            except Exception as e:
+                log.debug("set_scene_item_enabled(%s, %s) falló: %s",
+                          scene_item_id, enabled, e)
 
     # ------------------------------------------------------------------
     # Consulta / debug
@@ -448,7 +603,7 @@ class CanalController(QObject):
             return {"canal_id": canal_id, "applied": False}
         active = None
         if 0 <= state.active_index < len(state.playlist):
-            active = state.playlist[state.active_index][0]
+            active = state.playlist[state.active_index].item_id
         return {
             "canal_id": canal_id,
             "applied": True,
@@ -461,6 +616,7 @@ class CanalController(QObject):
                 and not state.is_paused
             ),
             "is_paused": state.is_paused,
+            "placeholder_visible": state.placeholder_visible,
         }
 
     # Método interno expuesto para tests headless: fuerza un tick del rotador.
