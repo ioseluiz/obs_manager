@@ -161,8 +161,57 @@ def main():
     m.clear_items(c1_id)
     _check(m.get_items(c1_id) == [], "clear_items deja lista vacía")
 
+    # === Duplicate canal (R-5) ===
+    print("\n[Duplicate — clona canal + items, arranca deshabilitado]")
+    # Preparar c1 con 2 items nuevamente (los eliminamos con clear_items)
+    m.add_item(c1_id, secuencia_id, duracion_override_seg=42)
+    m.add_item(c1_id, secuencia_id)
+    original = m.get_canal(c1_id)
+
+    dup_id = m.duplicate_canal(c1_id)
+    _check(dup_id != c1_id, "duplicate_canal devuelve un id distinto")
+    dup = m.get_canal(dup_id)
+    _check(dup is not None, "canal duplicado existe")
+    _check(dup["nombre"] == f"{original['nombre']} (copia)",
+           f"nombre auto-generado como '(copia)' (dio {dup['nombre']!r})")
+    _check(dup["url_destino"] == original["url_destino"], "URL copiada")
+    _check(dup["encoder"] == original["encoder"], "encoder copiado")
+    _check(dup["bitrate_kbps"] == original["bitrate_kbps"], "bitrate copiado")
+    _check(dup["habilitado"] is False,
+           "clone arranca deshabilitado (seguridad)")
+    _check(dup["audio_track"] == original["audio_track"], "audio_track copiado")
+
+    dup_items = m.get_items(dup_id)
+    orig_items = m.get_items(c1_id)
+    _check(len(dup_items) == len(orig_items),
+           f"items duplicados ({len(dup_items)} == {len(orig_items)})")
+    _check(dup_items[0]["duracion_override_seg"] == 42,
+           "duracion_override_seg preservada en el clone")
+    _check(dup_items[0]["secuencia_id"] == orig_items[0]["secuencia_id"],
+           "primer item apunta a la misma secuencia")
+
+    # Duplicar con nombre custom
+    dup2_id = m.duplicate_canal(c1_id, nombre_nuevo="MiClon")
+    _check(m.get_canal(dup2_id)["nombre"] == "MiClon",
+           "duplicate_canal con nombre_nuevo lo respeta")
+
+    # Duplicar cuando '(copia)' ya existe → sufija con contador
+    dup3_id = m.duplicate_canal(c1_id)
+    dup3 = m.get_canal(dup3_id)
+    _check(dup3["nombre"] == f"{original['nombre']} (copia) 2",
+           f"nombre auto-sufijado con 2 cuando '(copia)' ya existe "
+           f"(dio {dup3['nombre']!r})")
+
+    # Duplicar canal inexistente → ValueError
+    try:
+        m.duplicate_canal(99999)
+        _check(False, "duplicate_canal con id inexistente debe lanzar")
+    except ValueError:
+        _check(True, "duplicate_canal con id inexistente lanza ValueError")
+
     # === Cascade delete: borrar canal borra sus items ===
     print("\n[Cascade — delete_canal borra items]")
+    m.clear_items(c1_id)
     m.add_item(c1_id, secuencia_id)
     m.add_item(c1_id, secuencia_id)
     m.delete_canal(c1_id)
@@ -170,6 +219,8 @@ def main():
     _check(m.get_items(c1_id) == [], "items del canal borrado no quedan huérfanos")
     # El otro canal sigue intacto
     _check(m.get_canal(c2_id) is not None, "otros canales intactos")
+    # Y los duplicados no fueron afectados
+    _check(m.get_canal(dup_id) is not None, "canal duplicado independiente del origen")
 
     # === Cleanup ===
     try:

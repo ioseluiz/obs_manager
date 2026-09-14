@@ -168,6 +168,30 @@ def main():
     view.refresh()
     _check(view.lst_canales.count() == 4, "sidebar refleja el nuevo CanalC")
 
+    # === Duplicate canal (R-5) ===
+    print("\n[Duplicate canal — botón sidebar]")
+    _check(hasattr(view, "btn_duplicate_canal"), "btn_duplicate_canal existe")
+    # Seleccionar CanalA y duplicar via el modelo (skip dialog interactivo)
+    view.lst_canales.setCurrentRow(1)  # CanalA
+    initial_count = cm.get_all_canales()
+    new_id = cm.duplicate_canal(canal_a)
+    view.refresh()
+    _check(cm.get_canal(new_id)["nombre"] == "CanalA (copia)",
+           "nombre auto-generado (copia)")
+    _check(view.lst_canales.count() == initial_count.__len__() + 2,  # +1 (canal principal) +1 (new)
+           f"sidebar tras duplicar contiene el clon (dio {view.lst_canales.count()})")
+    _check(cm.get_canal(new_id)["habilitado"] is False,
+           "duplicado arranca deshabilitado")
+
+    # === Edit canal (R-5) — botón existe y rechaza Canal Principal ===
+    print("\n[Edit canal — botón sidebar]")
+    _check(hasattr(view, "btn_edit_canal"), "btn_edit_canal existe")
+    # Seleccionar Canal Principal — _selected_canal_id() debe devolver el sentinel
+    view.lst_canales.setCurrentRow(0)
+    from views.produccion_view import _CANAL_PRINCIPAL_ID
+    _check(view._selected_canal_id() == _CANAL_PRINCIPAL_ID,
+           "Canal Principal seleccionado (btn_edit rechaza en runtime)")
+
     # === Cleanup ===
     try:
         tmp.unlink()

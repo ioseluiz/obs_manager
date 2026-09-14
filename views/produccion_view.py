@@ -83,6 +83,14 @@ class ProduccionView(QWidget):
 
         sidebar_toolbar = QHBoxLayout()
         self.btn_new_canal = QPushButton("➕ Nuevo canal")
+        self.btn_edit_canal = QPushButton("✏")
+        self.btn_edit_canal.setToolTip("Editar canal seleccionado (nombre, URL, encoder, bitrate)")
+        self.btn_edit_canal.setFixedWidth(40)
+        self.btn_duplicate_canal = QPushButton("📋")
+        self.btn_duplicate_canal.setToolTip(
+            "Duplicar canal seleccionado (copia su playlist; arranca deshabilitado)"
+        )
+        self.btn_duplicate_canal.setFixedWidth(40)
         self.btn_delete_canal = QPushButton("🗑")
         self.btn_delete_canal.setToolTip("Eliminar canal seleccionado")
         self.btn_delete_canal.setFixedWidth(40)
@@ -90,6 +98,8 @@ class ProduccionView(QWidget):
         self.btn_refresh.setToolTip("Recargar desde la BD")
         self.btn_refresh.setFixedWidth(40)
         sidebar_toolbar.addWidget(self.btn_new_canal, 1)
+        sidebar_toolbar.addWidget(self.btn_edit_canal)
+        sidebar_toolbar.addWidget(self.btn_duplicate_canal)
         sidebar_toolbar.addWidget(self.btn_delete_canal)
         sidebar_toolbar.addWidget(self.btn_refresh)
         sidebar_layout.addLayout(sidebar_toolbar)
@@ -126,6 +136,8 @@ class ProduccionView(QWidget):
     def _connect_signals(self):
         self.lst_canales.currentItemChanged.connect(self._on_sidebar_selection)
         self.btn_new_canal.clicked.connect(self._on_new_canal)
+        self.btn_edit_canal.clicked.connect(self._on_edit_canal)
+        self.btn_duplicate_canal.clicked.connect(self._on_duplicate_canal)
         self.btn_delete_canal.clicked.connect(self._on_delete_canal)
         self.btn_refresh.clicked.connect(self.refresh)
 
@@ -218,6 +230,65 @@ class ProduccionView(QWidget):
             return
         self.refresh()
         self._select_by_canal_id(new_id)
+
+    def _on_edit_canal(self):
+        canal_id = self._selected_canal_id()
+        if canal_id is None or canal_id == _CANAL_PRINCIPAL_ID:
+            QMessageBox.information(
+                self, "Editar canal",
+                "Seleccione un canal regular (Canal Principal se edita en OBS)."
+            )
+            return
+        canal = self.canal_model.get_canal(canal_id)
+        if not canal:
+            return
+        existing = {
+            c["nombre"] for c in self.canal_model.get_all_canales()
+            if c["id"] != canal_id
+        }
+        dlg = CanalEditDialog(parent=self, canal=canal, existing_names=existing)
+        if dlg.exec() != CanalEditDialog.DialogCode.Accepted:
+            return
+        data = dlg.get_data()
+        try:
+            self.canal_model.update_canal(
+                canal_id,
+                nombre=data["nombre"], url_destino=data["url_destino"],
+                encoder=data["encoder"], bitrate_kbps=data["bitrate_kbps"],
+                habilitado=data["habilitado"], descripcion=data["descripcion"],
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error al editar canal", str(e))
+            return
+        self.refresh()
+        self._select_by_canal_id(canal_id)
+        # Si el canal ya estaba aplicado en OBS, re-apply para propagar cambios
+        # de URL/encoder/bitrate/etc. sin obligar al user a clickearlo.
+        status = self.canal_controller.get_status(canal_id)
+        if status.get("applied"):
+            self.canal_controller.apply_canal(canal_id)
+
+    def _on_duplicate_canal(self):
+        canal_id = self._selected_canal_id()
+        if canal_id is None or canal_id == _CANAL_PRINCIPAL_ID:
+            QMessageBox.information(
+                self, "Duplicar canal",
+                "Seleccione un canal regular (Canal Principal no se duplica)."
+            )
+            return
+        try:
+            new_id = self.canal_model.duplicate_canal(canal_id)
+        except Exception as e:
+            QMessageBox.critical(self, "Error al duplicar", str(e))
+            return
+        self.refresh()
+        self._select_by_canal_id(new_id)
+        QMessageBox.information(
+            self, "Canal duplicado",
+            "El canal se duplicó y arranca deshabilitado.\n\n"
+            "Revise su URL de destino, ajuste lo necesario y luego "
+            "habilite el Transmit desde su panel."
+        )
 
     def _on_delete_canal(self):
         canal_id = self._selected_canal_id()

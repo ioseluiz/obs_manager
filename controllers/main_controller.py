@@ -20,7 +20,6 @@ from views.countdown_view import CountdownView
 from controllers.countdown_controller import CountdownController
 
 from models.canal_model import CanalModel
-from views.canal_view import CanalView  # kept for legacy references; unused post-R-4
 from views.produccion_view import ProduccionView
 from controllers.canal_controller import CanalController
 
