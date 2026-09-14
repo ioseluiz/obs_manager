@@ -20,7 +20,8 @@ from views.countdown_view import CountdownView
 from controllers.countdown_controller import CountdownController
 
 from models.canal_model import CanalModel
-from views.canal_view import CanalView
+from views.canal_view import CanalView  # kept for legacy references; unused post-R-4
+from views.produccion_view import ProduccionView
 from controllers.canal_controller import CanalController
 
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
@@ -57,8 +58,10 @@ class MainController:
         )
         self.main_window.tabs.addTab(self.calendar_view, "Calendario de Cumpleaños")
 
-        # 2. Iniciar Módulo de Escenas y pasarle el controlador del calendario y el de settings
-        self.scene_view = SceneView()
+        # 2. Iniciar Módulo de Escenas (SceneView vive ahora en la pestaña
+        # "Biblioteca de Escenas" en modo compacto: sin controles de
+        # reproducción, esos ahora viven en Producción / Canal Principal).
+        self.scene_view = SceneView(compact_mode=True)
         self.scene_controller = SceneController(
             self.scene_view,
             self.scene_model,
@@ -66,7 +69,7 @@ class MainController:
             self.settings_model,
             self.calendar_controller
         )
-        self.main_window.tabs.addTab(self.scene_view, "Rotador de Escenas")
+        self.main_window.tabs.addTab(self.scene_view, "Biblioteca de Escenas")
 
         # Enlazar callback: cuando el calendario construye una escena, refrescar la tabla del rotador.
         self.calendar_controller.on_scene_created = self.scene_controller.refresh_table
@@ -78,15 +81,18 @@ class MainController:
         self.countdown_controller = CountdownController(self.countdown_view, self.countdown_model, self.obs_client)
         self.main_window.tabs.addTab(self.countdown_view, "Contadores")
 
-        # 3.4 Iniciar Módulo de Canales Multi-Salida (Fase 1)
+        # 3.4 Módulo de Canales Multi-Salida + Producción (Fase 1 + Fase R)
+        # La pestaña "Producción" une Canal Principal (rotador legacy) con
+        # los canales regulares en una sidebar con panel de detalle.
         self.canal_model = CanalModel()
         self.canal_controller = CanalController(
             self.canal_model, self.scene_model, self.obs_client,
         )
-        self.canal_view = CanalView(
+        self.produccion_view = ProduccionView(
             self.canal_model, self.scene_model, self.canal_controller,
+            self.scene_controller, self.toggle_recording,
         )
-        self.main_window.tabs.addTab(self.canal_view, "Canales Multi-Salida")
+        self.main_window.tabs.addTab(self.produccion_view, "Producción")
 
         # 3.5 Pestaña de Logs
         self.logs_view = LogsView()
@@ -116,7 +122,9 @@ class MainController:
         self.main_window.btn_connect.clicked.connect(self.connect_to_obs)
         self.main_window.btn_export.clicked.connect(self.export_scenes)
         self.main_window.btn_import.clicked.connect(self.import_scenes)
-        self.main_window.btn_record.clicked.connect(self.toggle_recording)
+        # El botón Transmitir global fue removido en R-4 — su callback ahora
+        # llega por el panel de Canal Principal via el argumento
+        # on_transmit_principal_toggle de ProduccionView.
 
     def open_settings(self):
         current_settings = self.settings_model.get_settings()
@@ -180,6 +188,9 @@ class MainController:
         self.main_window.set_canvas_size(
             self.obs_client.canvas_width, self.obs_client.canvas_height
         )
+        # Habilitar el botón Transmitir de Canal Principal en Producción
+        if hasattr(self, "produccion_view") and self.produccion_view is not None:
+            self.produccion_view.set_transmit_principal_enabled(True)
         self.watchdog.mark_connected()
         log.info("Conexión inicial a OBS establecida.")
         # Sincronizar estado de grabación con OBS (por si ya estaba grabando)
@@ -193,19 +204,29 @@ class MainController:
         status = self.obs_client.get_recording_status()
         if status and status["active"]:
             self._is_recording = True
-            self.main_window.set_recording_ui(True, status["timecode"][:8])
+            self._update_recording_ui(True, status["timecode"][:8])
             if not self._record_timer.isActive():
                 self._record_timer.start()
         else:
             self._is_recording = False
-            self.main_window.set_recording_ui(False)
+            self._update_recording_ui(False)
             self._record_timer.stop()
+
+    def _update_recording_ui(self, active: bool, timecode: str = "00:00:00"):
+        """Propaga el estado de la transmisión legacy a la status bar (label
+        permanente) y al panel de Canal Principal en la pestaña Producción."""
+        self.main_window.set_recording_ui(active, timecode)
+        if hasattr(self, "produccion_view") and self.produccion_view is not None:
+            self.produccion_view.set_recording_ui_principal(active, timecode)
 
     def _on_connection_lost(self, message):
         log.warning("Caída de OBS detectada por watchdog: %s", message)
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
         self.main_window.set_connection_ui(False)
         self.main_window.clear_canvas_size()
+        # El botón Transmitir de Canal Principal se deshabilita hasta reconectar.
+        if hasattr(self, "produccion_view") and self.produccion_view is not None:
+            self.produccion_view.set_transmit_principal_enabled(False)
         # Detener el polling del timer local; el estado real se re-sincroniza al reconectar.
         self._record_timer.stop()
         # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
@@ -217,6 +238,8 @@ class MainController:
 
     def _on_reconnect_attempt(self, attempt):
         self.main_window.set_reconnecting_ui(attempt)
+        if hasattr(self, "produccion_view") and self.produccion_view is not None:
+            self.produccion_view.set_transmit_principal_enabled(False)
 
     def _on_connection_restored(self):
         log.info("Conexión con OBS restaurada.")
@@ -248,8 +271,8 @@ class MainController:
         if results:
             ok = sum(1 for r in results if r["ok"])
             log.info("Canales auto-aplicados a OBS: %d/%d.", ok, len(results))
-            if hasattr(self, "canal_view") and self.canal_view is not None:
-                self.canal_view.refresh()
+            if hasattr(self, "produccion_view") and self.produccion_view is not None:
+                self.produccion_view.refresh()
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
@@ -481,7 +504,7 @@ class MainController:
                 return
             self._is_recording = False
             self._record_timer.stop()
-            self.main_window.set_recording_ui(False)
+            self._update_recording_ui(False)
             self.main_window.statusBar().showMessage("Transmisión detenida", 5000)
             log.info("Transmisión detenida. output_path OBS=%r", msg)
         else:
@@ -490,7 +513,7 @@ class MainController:
                 QMessageBox.critical(self.main_window, "Error al iniciar transmisión", msg)
                 return
             self._is_recording = True
-            self.main_window.set_recording_ui(True, "00:00:00")
+            self._update_recording_ui(True, "00:00:00")
             self._record_timer.start()
             self.main_window.statusBar().showMessage("Transmisión iniciada", 5000)
             log.info("Transmisión iniciada.")
@@ -505,9 +528,9 @@ class MainController:
             # OBS detuvo la transmisión por otro medio (UI de OBS, hotkey, error…).
             self._is_recording = False
             self._record_timer.stop()
-            self.main_window.set_recording_ui(False)
+            self._update_recording_ui(False)
             return
-        self.main_window.set_recording_ui(True, status["timecode"][:8])
+        self._update_recording_ui(True, status["timecode"][:8])
 
     def show_main_window(self):
         self.main_window.show()

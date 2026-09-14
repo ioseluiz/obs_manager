@@ -85,17 +85,9 @@ class MainWindow(QMainWindow):
         self.btn_import.setToolTip("Importar escenas desde un archivo JSON")
         self.toolbar.addWidget(self.btn_import)
 
-        self.toolbar.addSeparator()
-
-        # Botón de Transmisión (toggle) — dispara StartRecord/StopRecord de OBS,
-        # que en la config Custom Output FFmpeg + URL UDP transmite sin generar archivo.
-        self.btn_record = QPushButton("🔴" if compact else " 🔴 Transmitir")
-        self.btn_record.setToolTip("Iniciar salida en OBS (Custom Output FFmpeg → UDP)")
-        self.btn_record.setEnabled(False)  # Se habilita al conectar
-        self._record_style_idle = "background-color: #6C757D; color: white;"
-        self._record_style_active = "background-color: #DC3545; color: white;"
-        self.btn_record.setStyleSheet(self._record_style_idle)
-        self.toolbar.addWidget(self.btn_record)
+        # Botón Transmitir global removido en Fase R (R-4): la transmisión
+        # ahora se controla por canal desde la pestaña Producción — Canal
+        # Principal tiene su propio Transmit dentro de su detail panel.
 
         # --- BARRA DE ESTADO (STATUS BAR) ---
         self.setStatusBar(QStatusBar())
@@ -171,14 +163,12 @@ class MainWindow(QMainWindow):
             self.btn_connect.setStyleSheet("background-color: #198754; color: white;")
             self.lbl_connection_status.setText("🟢 Conectado ")
             self.lbl_connection_status.setStyleSheet("color: #198754; font-weight: bold;")
-            self.btn_record.setEnabled(True)
         else:
             self.btn_connect.setText("🔌" if compact else " 🔌 Reconectar")
             self.btn_connect.setToolTip("Reconectar a OBS")
             self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
             self.lbl_connection_status.setText("🔴 Desconectado ")
             self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
-            self.btn_record.setEnabled(False)
 
     def set_reconnecting_ui(self, attempt: int):
         """Estado intermedio: el watchdog está reintentando."""
@@ -188,7 +178,6 @@ class MainWindow(QMainWindow):
         self.btn_connect.setStyleSheet("background-color: #FD7E14; color: white;")
         self.lbl_connection_status.setText(f"🟠 Reconectando (intento {attempt}) ")
         self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
-        self.btn_record.setEnabled(False)
 
     def set_canvas_size(self, width, height):
         """Actualiza el label del canvas de OBS en el status bar."""
@@ -210,17 +199,15 @@ class MainWindow(QMainWindow):
         self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
 
     def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
-        """Actualiza el estado visual del botón de transmisión y el timer."""
-        compact = self._compact_mode
+        """Actualiza el indicador global de transmisión en la status bar.
+
+        El botón Transmitir por-canal vive en la pestaña Producción; esta
+        etiqueta permanente sólo refleja el estado de Canal Principal
+        (legacy StartRecord de OBS) para tenerlo siempre visible.
+        """
         if active:
-            self.btn_record.setText("⏹" if compact else " ⏹ Detener")
-            self.btn_record.setToolTip("Detener salida en OBS")
-            self.btn_record.setStyleSheet(self._record_style_active)
             self.lbl_record_timer.setText(f"🔴 EN VIVO {timecode} ")
             self.lbl_record_timer.setVisible(True)
         else:
-            self.btn_record.setText("🔴" if compact else " 🔴 Transmitir")
-            self.btn_record.setToolTip("Iniciar salida en OBS (Custom Output FFmpeg → UDP)")
-            self.btn_record.setStyleSheet(self._record_style_idle)
             self.lbl_record_timer.setVisible(False)
             self.lbl_record_timer.setText("")
