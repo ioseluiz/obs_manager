@@ -2,6 +2,22 @@
 
 Aplicación de escritorio desarrollada en Python con PyQt6 para la automatización y gestión remota de transmisiones corporativas en OBS Studio. Diseñada para centralizar la operación de pantallas digitales, permitiendo una rotación de contenido autónoma, gestión dinámica de dashboards live y programación temporal por escena.
 
+## 📑 Contenido
+
+- [🌟 Características Principales](#-características-principales)
+- [🛠️ Requisitos del Sistema](#️-requisitos-del-sistema)
+- [🚀 Instalación y Configuración](#-instalación-y-configuración)
+- [🌐 Conectar a OBS en otro equipo](#-conectar-a-obs-en-otro-equipo)
+- [🧭 Guía de uso — primeros pasos](#-guía-de-uso--primeros-pasos)
+- [🎛 Canales Multi-Salida](#-canales-multi-salida)
+- [🎥 Reproducir un canal en una pantalla](#-reproducir-un-canal-en-una-pantalla)
+- [📊 Calibración de Capacidad](#-calibración-de-capacidad)
+- [🔐 Sesiones de Dashboard (Power BI)](#-sesiones-de-dashboard-power-bi-sistemas-con-login)
+- [📂 Ubicaciones de Datos](#-ubicaciones-de-datos)
+- [📦 Instalador de Windows](#-instalador-de-windows)
+- [🏗 Arquitectura](#-arquitectura)
+- [📝 Notas de Operación](#-notas-de-operación)
+
 ## 🌟 Características Principales
 
 ### Rotador de Escenas Universal
@@ -88,33 +104,89 @@ Presets configurables al agregar una escena para acelerar casos comunes:
 ### Sincronización de Base de Datos
 Eliminación y creación de escenas en espejo (App + OBS) para mantener el entorno limpio.
 
+### Canales Multi-Salida (streaming UDP paralelo)
+- **N canales independientes** — cada uno con su propia rotación, encoder, bitrate, resolución y URL destino UDP. Ideal para mandar contenidos distintos a distintas pantallas físicas desde un solo OBS.
+- **Preset por canal** — resolución (720p, 1080p, 1440p, 4K) y FPS (30/60) explícitos. El validador conoce el costo real de cada preset (720p30 = 0.5 unidades vs 1080p60 = 2 unidades).
+- **Calibración automática** — mide cuántos canales aguanta cada encoder (x264, qsv, nvenc, amf) en este equipo. Se guarda por fingerprint del equipo — reinstalar mantiene la calibración.
+- **Validación al conectar** — si la config excede la capacidad calibrada, sale un dialog con sugerencias por canal. Nunca auto-degrada — el user decide.
+- **Watchdog runtime** — vigila `encoding_lag` cada 10s durante producción, avisa non-blocking si detecta degradación sostenida.
+- **Botón 🎥 Preview** — verificá localmente lo que sale por el UDP del canal sin depender del firewall.
+- **Botón 🔬 Diagnóstico** — inspecciona los settings efectivos del filtro `udp_out` en OBS.
+
 ## 🛠️ Requisitos del Sistema
 
-* **Python 3.10+**
-* **OBS Studio 28.0+** (con WebSocket habilitado)
-* **Librerías:** `PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`
+**Requeridos siempre:**
+* **Python 3.10+** (o el instalador `.exe` que ya trae Python embebido)
+* **OBS Studio 28.0+** con WebSocket habilitado
+* **Plugin Source Record de Exeldro** — necesario para canales multi-salida
+* **Librerías Python:** `PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`
+
+**Opcionales (solo si querés usar el botón 🎥 Preview):**
+* **ffmpeg / ffplay** — reproductor local de canales UDP sin depender del firewall
 
 ## 🚀 Instalación y Configuración
 
+### Opción A — Instalador .exe (recomendado para usuarios finales)
+
+1. Descargar `OBS_Automation_Manager_Setup_vX.Y.Z.exe` desde la última release en GitHub.
+2. Doble click → instala per-user en `%LOCALAPPDATA%\Programs\OBS_Automation_Manager\` sin pedir admin.
+3. Continuar con el paso **⚙ Configurar OBS WebSocket** más abajo.
+
+### Opción B — Ejecutar desde código fuente (desarrolladores)
+
 1. **Preparar el entorno virtual:**
-   ```bash
+   ```powershell
    python -m venv venv
    venv\Scripts\activate
    ```
 
 2. **Instalar dependencias:**
-   ```bash
-   pip install PyQt6 obsws-python python-dotenv Pillow
+   ```powershell
+   pip install PyQt6 obsws-python python-dotenv Pillow pywin32
    ```
 
-3. **Configurar OBS WebSocket:**
-   - En OBS: Herramientas → Ajustes del servidor WebSocket.
-   - Habilitar el servidor, definir puerto (4455 por defecto) y contraseña.
+3. **Ejecutar:**
+   ```powershell
+   python main.py
+   ```
 
-4. **Vincular la Aplicación:**
-   - En el botón ⚙ Ajustes de la app, ingresar las credenciales de OBS.
-   - Botón **Probar conexión** valida sin guardar (útil para iterar IP/contraseña/firewall).
-   - Al conectar se genera automáticamente un archivo `.env` para persistir la configuración.
+### ⚙ Configurar OBS WebSocket
+
+1. En OBS Studio: **Herramientas → Ajustes del servidor WebSocket**.
+2. Habilitar el servidor, definir puerto (4455 por defecto) y contraseña.
+3. Copiar la contraseña — la vas a necesitar en el próximo paso.
+
+### 🔌 Vincular la Aplicación
+
+1. Al abrir la app por primera vez aparece el ⚙ **Ajustes**. Si no aparece, click en el botón Ajustes del toolbar.
+2. Ingresar **Host / IP**, **Puerto** y **Contraseña** copiada de OBS.
+3. Pulsar **Probar conexión** — valida sin guardar. Si sale verde ✓, guardá.
+4. La app genera automáticamente un archivo `.env` en `%LOCALAPPDATA%\OBS_Automation_Manager\` para persistir la configuración.
+
+### 🔌 Instalar el plugin Source Record (para canales multi-salida)
+
+Los canales multi-salida requieren el plugin **Source Record** de Exeldro. Si sólo vas a usar el rotador global (Canal Principal), podés saltar este paso.
+
+1. Descargar desde: https://obsproject.com/forum/resources/source-record.1285/ (o la última versión estable en GitHub Releases del plugin).
+2. Ejecutar el instalador (`.exe`). Instala en la carpeta de OBS automáticamente.
+3. Reiniciar OBS. Verificar: click derecho sobre cualquier escena → **Filtros** → **Añadir filtro** → debe aparecer **"Source Record"** en la lista.
+
+### 🎬 Instalar ffmpeg (opcional — solo para el botón 🎥 Preview)
+
+El botón **🎥 Preview** del panel de canal usa `ffplay` para mostrar el UDP localmente sin tocar el firewall. Si no lo instalás, el botón mostrará un aviso pidiéndolo.
+
+**Con winget** (Windows 10+ / 11 con winget habilitado):
+```powershell
+winget install Gyan.FFmpeg
+```
+
+**Sin admin (portable)**:
+1. Descargar el zip desde https://www.gyan.dev/ffmpeg/builds/ (elegir "release essentials").
+2. Descomprimir en `%USERPROFILE%\ffmpeg\`.
+3. Agregar `%USERPROFILE%\ffmpeg\bin` al **PATH del usuario** (Panel de Control → Variables de entorno → PATH del usuario → Nuevo). No requiere admin.
+4. **Reiniciar la app** para que agarre el PATH nuevo.
+
+Verificar: en PowerShell `ffplay -version` debe mostrar la versión sin errores.
 
 ## 🌐 Conectar a OBS en otro equipo
 
@@ -158,6 +230,151 @@ Cuando OBS Studio corre en una máquina distinta a la app (setup típico: PC de 
 ```bash
 python main.py
 ```
+
+## 🧭 Guía de uso — primeros pasos
+
+La app se organiza en pestañas en la barra superior. Estos son los primeros pasos recomendados tras instalar y conectar:
+
+| Pestaña | Para qué sirve |
+|---|---|
+| **Biblioteca de Escenas** | Crear/editar/borrar todas las escenas del rotador (imágenes, videos, dashboards). No transmite — sólo administra. |
+| **Producción** | Panel operativo. Arriba a la izquierda hay un sidebar con **Canal Principal (Global)** + los canales multi-salida que hayas creado. Elegí uno y en el panel de la derecha aparecen los controles de rotación + botón **▶ Transmitir**. |
+| **Calendario** | Configura la escena de calendario automático con el marcador dorado que se mueve al día actual. |
+| **Contadores** | Cuenta regresiva/adelante a fecha objetivo. |
+| **Logs** | Últimas 200 líneas de eventos. Auto-refresh cada 5s. |
+
+### Flujo típico
+
+**Caso A — Una sola salida global (usar Canal Principal):**
+1. Ir a **Biblioteca de Escenas** y crear escenas (imágenes, videos, dashboards).
+2. Ir a **Producción → Canal Principal (Global)**.
+3. Pulsar **▶ Transmitir** → OBS empieza a grabar el output global.
+4. Pulsar **▶** (Play del rotador) → empiezan las rotaciones entre las escenas de la Biblioteca.
+
+**Caso B — Varias salidas independientes (canales multi-salida):**
+1. Verificar que el plugin **Source Record** está instalado en OBS (ver Instalación).
+2. En la primera conexión, la app te va a preguntar **"¿Calibrar ahora?"** — aceptar. Toma ~4 minutos y mide cuántos canales aguanta el equipo por encoder. Ver *📊 Calibración* más abajo.
+3. Ir a **Producción → botón ➕ Nuevo canal en el sidebar**. Rellenar:
+   - **Nombre** (será el nombre de la escena OBS contenedora).
+   - **URL destino** (ej: `udp://192.168.1.50:9001` — la IP de la pantalla receptora).
+   - **Encoder / Bitrate / Resolución / FPS** — el cost hint del dialog muestra cuánto pesa este canal.
+4. Guardar → el canal aparece en el sidebar. Seleccionarlo → panel de la derecha.
+5. Botón **➕ Agregar** para armar la playlist del canal (elegís escenas de la Biblioteca).
+6. Botón **📡 Aplicar cambios en OBS** → crea la escena contenedora y el filtro Source Record.
+7. Botón **▶ Transmitir** → arranca el output UDP.
+8. Botón **▶** (Play del rotador) → empieza a alternar entre los items del canal.
+
+## 🎛 Canales Multi-Salida
+
+**Concepto**: mientras el Canal Principal usa el "Program" global de OBS (una sola escena en pantalla a la vez), los canales multi-salida cada uno tiene:
+- Su **propia escena contenedora** en OBS.
+- Su **propio filtro Source Record** que streamea a un **URL UDP independiente**.
+- Su **propia rotación interna** (alterna visibilidad de scene items dentro de su escena madre).
+
+Esto permite mandar contenido distinto a distintas pantallas (por ejemplo: dashboard operativo al edificio 721, video corporativo a Miraflores) desde un solo OBS.
+
+### Panel de un canal
+
+Al seleccionar un canal en el sidebar de Producción, el panel derecho muestra:
+
+| Botón | Función |
+|---|---|
+| **▶ Transmitir** | Habilita/deshabilita el filtro UDP del canal. Cuando está prendido, el UDP sale. |
+| **▶ / ⏮ / ⏸ / ⏭ / ⏹** | Play / anterior / pausar / siguiente / stop del rotador de ESE canal (independiente de otros canales). |
+| **📡 Aplicar cambios en OBS** | Recrea la escena contenedora, el filtro y los scene items desde la config actual. Úsalo tras editar el canal o si OBS se reinició. |
+| **🔬 Diagnóstico** | Lee los settings efectivos del filtro `udp_out` desde OBS. Útil cuando el stream no se ve como esperás — verifica encoder, bitrate, keyframe, profile, etc. |
+| **🎥 Preview** | Abre una ventana ffplay local con la salida UDP del canal (requiere ffmpeg instalado — ver Instalación). |
+
+## 🎥 Reproducir un canal en una pantalla
+
+Los canales emiten **MPEG-TS sobre UDP**. Para verlos en la pantalla receptora tenés varias opciones:
+
+### Opción A — En tu propio equipo, usando el botón 🎥 Preview
+
+La forma más rápida para verificar que el canal está emitiendo bien:
+
+1. En la app: **Producción → seleccionar el canal → 🎥 Preview**.
+2. Se abre una ventana ffplay con el stream en vivo.
+3. Cerrar con Ctrl+C en la terminal negra que también se abre.
+
+**Requiere ffmpeg instalado** (ver Instalación).
+
+### Opción B — En una pantalla receptora, usando VLC
+
+Instalar VLC en la máquina receptora. Después:
+
+```powershell
+"C:\Program Files\VideoLAN\VLC\vlc.exe" --demux=ts udp://@:9001
+```
+
+Reemplazar `9001` con el puerto del URL destino del canal. **El flag `--demux=ts` es obligatorio** — sin él, VLC auto-detecta como MPEG-PS (formato de DVDs) y muestra pantalla negra con timecode avanzando.
+
+**Alternativa permanente en VLC** (evita escribir el flag cada vez):
+1. VLC → **Herramientas → Preferencias**.
+2. Abajo izquierda: **Show settings: All**.
+3. **Input / Codecs → Demuxers**.
+4. **Demux module** → cambiar de *Automatic* a **MPEG-TS**.
+5. Guardar. Ahora `Media → Open Network Stream → udp://@:9001` funciona sin flag.
+
+### Opción C — Autorizar VLC en el firewall (si tenés admin)
+
+Si tenés permisos de administrador en la máquina receptora y querés que VLC funcione sin trucos:
+
+```powershell
+# Como Administrador
+New-NetFirewallRule -DisplayName "VLC UDP Multi-Salida" `
+  -Direction Inbound `
+  -Program "C:\Program Files\VideoLAN\VLC\vlc.exe" `
+  -Protocol UDP -Action Allow
+```
+
+Después VLC puede abrir el UDP sin `--demux=ts` desde la UI normal.
+
+### Firewall corporativo bloquea UDP a VLC/ffplay
+
+En entornos corporativos, Windows Defender Firewall **suele bloquear inbound UDP** para `vlc.exe` y `ffplay.exe` **sin popup ni error visible** — parece que el stream no llega. Python.exe suele estar autorizado (por otras apps).
+
+**Verificación rápida**: si el archivo `.ts` grabado se ve bien pero el UDP en vivo con VLC es negro, es firewall.
+
+**Workaround sin admin** — el botón 🎥 Preview de la app usa este pattern: Python bindea el puerto UDP (permitido por firewall) y pipea el stream por stdin a ffplay. **Nunca abre puerto UDP con el reproductor directamente**.
+
+Script equivalente que podés usar en cualquier máquina con Python + ffmpeg:
+
+```powershell
+venv\Scripts\python.exe scripts\play_canal_local.py 9001
+```
+
+## 📊 Calibración de Capacidad
+
+Antes de configurar canales multi-salida, la app necesita saber **cuántos canales UDP simultáneos aguanta este equipo por encoder**. Sin esa medición, no puede validar si tu config va a saturar la CPU/GPU.
+
+### Cuándo se calibra automáticamente
+
+- **Primera vez** que conectás la app a OBS en un equipo → aparece un popup preguntando "¿Calibrar ahora?".
+- Después de un **cambio de hardware** o **upgrade mayor de OBS** — la app detecta que el fingerprint del equipo cambió y vuelve a preguntar.
+
+### Cómo re-calibrar manualmente
+
+1. **Ajustes → sección "Calibración de capacidad"**.
+2. El label muestra el estado: ✓ calibrado con `x264=N, qsv=M, …` o ⚠ sin calibrar.
+3. Botón **🔬 Re-calibrar este equipo**.
+
+### Qué hace la calibración
+
+1. Crea una escena baseline temporal en OBS con un color source gris (1920×1080).
+2. Para cada encoder (`x264`, `qsv`, `nvenc`, `amf`):
+   - Va agregando filtros UDP a puertos loopback (nadie los lee).
+   - Mide `output_skipped_frames_ratio` durante 10 segundos por paso.
+   - Cuando supera 5%, marca `nmax = N - 1` para ese encoder.
+   - Encoders no disponibles (nvenc sin GPU NVIDIA, amf sin AMD) fallan rápido y se marcan `nmax=0`.
+3. Persiste el resultado en `%LOCALAPPDATA%\OBS_Automation_Manager\calibrations.json`, keyed por fingerprint.
+
+Toma ~60 segundos por encoder. Se puede cancelar — guarda lo que alcanzó a medir.
+
+### Validación en tiempo real
+
+- **Al conectar OBS**: la app compara los canales habilitados vs el `nmax` calibrado. Si excede, aparece un dialog con las sugerencias por canal ("baje `edif721` a 720p" o "cambie encoder a qsv"). Nunca auto-degrada — el user decide.
+- **Durante producción**: un watchdog cada 10s mide skipped frames. Si sostenidamente >5% durante 30s, aparece un aviso en la barra de estado. También non-bloqueante.
 
 ## 🔐 Sesiones de Dashboard (Power BI, sistemas con login)
 
