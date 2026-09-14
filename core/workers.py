@@ -12,19 +12,64 @@ class OBSConnectionWorker(QThread):
     connection_success = pyqtSignal(str)
     connection_error = pyqtSignal(str)
 
-    def __init__(self, obs_client, host, port, password):
+    def __init__(self, obs_client, host, port, password, timeout=5.0):
         super().__init__()
         self.obs_client = obs_client
         self.host = host
         self.port = port
         self.password = password
+        self.timeout = timeout
 
     def run(self):
-        success, message = self.obs_client.connect(self.host, self.port, self.password)
+        success, message = self.obs_client.connect(
+            self.host, self.port, self.password, timeout=self.timeout,
+        )
         if success:
             self.connection_success.emit(message)
         else:
             self.connection_error.emit(message)
+
+
+class OBSProbeWorker(QThread):
+    """Prueba una conexión con parámetros ad-hoc sin tocar el cliente productivo.
+
+    Se usa desde el diálogo de Ajustes para validar credenciales antes de guardar.
+    Nunca dispara auto-launch ni afecta la sesión activa.
+    """
+
+    finished_probe = pyqtSignal(bool, str)
+
+    def __init__(self, host, port, password, timeout=3.0):
+        super().__init__()
+        self.host = host
+        self.port = port
+        self.password = password
+        self.timeout = timeout
+
+    def run(self):
+        # Import perezoso para no colgar arranque si obsws_python explota.
+        import obsws_python as obs
+        from core.obs_errors import friendly_error
+        try:
+            client = obs.ReqClient(
+                host=self.host,
+                port=self.port,
+                password=self.password,
+                timeout=self.timeout,
+            )
+            try:
+                client.get_version()
+            finally:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+            self.finished_probe.emit(True, "Conexión exitosa")
+        except Exception as e:
+            self.finished_probe.emit(
+                False,
+                friendly_error(f"{type(e).__name__}: {e}", self.host, self.port),
+            )
 
 
 class OBSLauncherWorker(QThread):
@@ -41,7 +86,7 @@ class OBSLauncherWorker(QThread):
     finished_launch = pyqtSignal(bool, str)
 
     def __init__(self, obs_client, exe_path, host, port, password,
-                 timeout_seconds=30):
+                 timeout_seconds=30, connect_timeout=2.0):
         super().__init__()
         self.obs_client = obs_client
         self.exe_path = exe_path
@@ -49,6 +94,7 @@ class OBSLauncherWorker(QThread):
         self.port = port
         self.password = password
         self.timeout_seconds = timeout_seconds
+        self.connect_timeout = connect_timeout
 
     def run(self):
         self.launching.emit()
@@ -60,7 +106,7 @@ class OBSLauncherWorker(QThread):
         for attempt in range(1, self.timeout_seconds + 1):
             self.waiting_websocket.emit(attempt)
             success, conn_msg = self.obs_client.connect(
-                self.host, self.port, self.password
+                self.host, self.port, self.password, timeout=self.connect_timeout,
             )
             if success:
                 self.finished_launch.emit(True, "Conectado tras auto-launch")
@@ -139,7 +185,8 @@ class OBSWatchdog(QThread):
             log.info("Reconectando a OBS (intento %d, espera %ds)…", attempt, backoff)
             settings = self.get_settings()
             success, msg = self.obs_client.connect(
-                settings["host"], int(settings["port"]), settings["password"]
+                settings["host"], int(settings["port"]), settings["password"],
+                timeout=3.0,
             )
             if success:
                 log.info("Reconexión exitosa tras %d intento(s).", attempt)

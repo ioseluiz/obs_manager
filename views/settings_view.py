@@ -1,3 +1,4 @@
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
                              QPushButton, QHBoxLayout, QCheckBox, QLabel,
                              QFileDialog, QMessageBox, QGroupBox)
@@ -6,25 +7,44 @@ from core import obs_launcher
 
 
 class SettingsDialog(QDialog):
+    # Emitida al pulsar "Probar conexión". El controller la usa para lanzar
+    # un OBSProbeWorker con un cliente desechable (no toca la sesión activa).
+    test_connection_requested = pyqtSignal(dict)
+
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Conexión OBS")
-        self.setFixedSize(480, 360)
+        self.setFixedSize(520, 440)
 
         layout = QVBoxLayout(self)
 
         # --- Conexión WebSocket ---
         conn_group = QGroupBox("Conexión WebSocket")
-        form_layout = QFormLayout(conn_group)
+        conn_layout = QVBoxLayout(conn_group)
+        form_layout = QFormLayout()
 
         self.host_input = QLineEdit(current_settings.get("host", ""))
+        self.host_input.setPlaceholderText(
+            "localhost o IP del equipo con OBS (ej. 192.168.1.42)"
+        )
         self.port_input = QLineEdit(str(current_settings.get("port", "")))
         self.password_input = QLineEdit(current_settings.get("password", ""))
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-        form_layout.addRow("Host:", self.host_input)
+        form_layout.addRow("Host / IP:", self.host_input)
         form_layout.addRow("Puerto:", self.port_input)
         form_layout.addRow("Contraseña:", self.password_input)
+        conn_layout.addLayout(form_layout)
+
+        # Botón Probar Conexión + label de estado
+        probe_row = QHBoxLayout()
+        self.btn_test = QPushButton("Probar conexión")
+        self.lbl_test_status = QLabel("")
+        self.lbl_test_status.setWordWrap(True)
+        probe_row.addWidget(self.btn_test)
+        probe_row.addWidget(self.lbl_test_status, 1)
+        conn_layout.addLayout(probe_row)
+
         layout.addWidget(conn_group)
 
         # --- Lanzamiento automático de OBS ---
@@ -68,6 +88,30 @@ class SettingsDialog(QDialog):
         self.btn_save.clicked.connect(self.accept)
         self.btn_detect.clicked.connect(self._on_detect)
         self.btn_browse.clicked.connect(self._on_browse)
+        self.btn_test.clicked.connect(self._on_test_clicked)
+
+    def _on_test_clicked(self):
+        self.test_connection_requested.emit({
+            "host": self.host_input.text().strip(),
+            "port": self.port_input.text().strip(),
+            "password": self.password_input.text(),
+        })
+
+    def set_test_pending(self):
+        """Estado 'Probando…' mientras el probe worker corre."""
+        self.btn_test.setEnabled(False)
+        self.lbl_test_status.setStyleSheet("color: #6C757D;")
+        self.lbl_test_status.setText("Probando…")
+
+    def set_test_result(self, success: bool, message: str):
+        """Slot que recibe el resultado del OBSProbeWorker."""
+        self.btn_test.setEnabled(True)
+        if success:
+            self.lbl_test_status.setStyleSheet("color: #198754; font-weight: bold;")
+            self.lbl_test_status.setText(f"✓ {message}")
+        else:
+            self.lbl_test_status.setStyleSheet("color: #DC3545;")
+            self.lbl_test_status.setText(f"✗ {message}")
 
     def _on_detect(self):
         path = obs_launcher.find_obs_executable()
