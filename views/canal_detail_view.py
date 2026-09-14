@@ -265,11 +265,17 @@ class CanalDetailView(QWidget):
         elif status.get("is_paused"):
             self.lbl_status.setText("● Pausado")
             self.lbl_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
-            self.lbl_active.setText(self._active_label(status.get("active_item_id")))
+            self.lbl_active.setText(
+                self._active_label(status.get("active_item_id"))
+                + self._remaining_suffix(status, paused=True)
+            )
         elif status.get("rotator_running"):
             self.lbl_status.setText("● En vivo")
             self.lbl_status.setStyleSheet("color: #198754; font-weight: bold;")
-            self.lbl_active.setText(self._active_label(status.get("active_item_id")))
+            self.lbl_active.setText(
+                self._active_label(status.get("active_item_id"))
+                + self._remaining_suffix(status, paused=False)
+            )
         else:
             self.lbl_status.setText("● Aplicado (apagado)")
             self.lbl_status.setStyleSheet("color: #6C757D; font-weight: bold;")
@@ -278,6 +284,14 @@ class CanalDetailView(QWidget):
         self.btn_pause.blockSignals(True)
         self.btn_pause.setChecked(bool(status.get("is_paused")))
         self.btn_pause.blockSignals(False)
+
+    def _remaining_suffix(self, status: dict, paused: bool) -> str:
+        """Formatea ' (Ns restantes)' a partir de remaining_ms del status."""
+        ms = status.get("remaining_ms")
+        if ms is None or ms <= 0:
+            return " (arrancando…)" if not paused else ""
+        secs = max(1, ms // 1000)
+        return f" ({secs}s restantes)" if not paused else f" ({secs}s pausados)"
 
     def _active_label(self, active_item_id) -> str:
         if active_item_id is None:

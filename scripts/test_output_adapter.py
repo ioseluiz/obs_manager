@@ -66,6 +66,10 @@ def run_unit_tests() -> None:
     _check(s["bitrate"] == 2500, "bitrate desde bitrate_kbps")
     _check(s["rate_control"] == "CBR", "rate_control fijo en CBR")
     _check(s["scale_type"] == 3, "scale_type fijo en 3")
+    _check(s["keyint_sec"] == 2, "keyint_sec = 2 (streaming UDP requiere keyframes frecuentes)")
+    _check(s["profile"] == "high", "profile = high (default OBS streaming)")
+    _check(s["tune"] == "zerolatency", "tune = zerolatency (evita lookahead del encoder)")
+    _check(s["preset"] == "veryfast", "preset = veryfast (default streaming OBS)")
     _check("record_mode" not in s, "NO incluye record_mode (regla firme Fase 1)")
     _check("path" not in s, "NO incluye path (regla firme Fase 1)")
 

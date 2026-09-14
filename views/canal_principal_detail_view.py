@@ -230,9 +230,19 @@ class CanalPrincipalDetailView(QWidget):
             )
             self.lbl_rotator.setStyleSheet("font-weight: bold; color: #FD7E14;")
         elif is_running:
+            # time_left arranca en 0 durante la fracción de segundo entre
+            # que el timer arranca y update_countdown hace su primer tick;
+            # también puede aparecer 0 si la escena tiene duracion 0. En
+            # cualquier caso, mostrar "0s" es más informativo que ocultar
+            # los segundos, porque le confirma al user que el poll funciona.
+            if time_left is None:
+                secs_txt = ""
+            elif time_left <= 0:
+                secs_txt = " (arrancando…)"
+            else:
+                secs_txt = f" ({time_left}s restantes)"
             self.lbl_rotator.setText(
-                f"Rotador: ▶ Reproduciendo «{active_name}»"
-                + (f" ({time_left}s)" if time_left is not None else "")
+                f"Rotador: ▶ Reproduciendo «{active_name}»{secs_txt}"
             )
             self.lbl_rotator.setStyleSheet("font-weight: bold; color: #198754;")
         else:
