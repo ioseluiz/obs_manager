@@ -64,6 +64,45 @@ def init_db():
     _add_column_if_missing(cursor, "contadores", "spread_pct", "INTEGER DEFAULT 100")
     _add_column_if_missing(cursor, "contadores", "scale_pct", "INTEGER DEFAULT 100")
 
+    # Tabla para canales multi-salida (feature Fase 1).
+    # Cada fila = 1 destino UDP independiente. Su `nombre` es también el nombre
+    # de la escena contenedora en OBS (el filtro source_record_filter va anclado
+    # a esa escena, con stream_mode=1 apuntando a `url_destino`).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS canales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL UNIQUE,
+            url_destino TEXT NOT NULL,
+            encoder TEXT NOT NULL DEFAULT 'x264',
+            bitrate_kbps INTEGER NOT NULL DEFAULT 2500,
+            habilitado INTEGER NOT NULL DEFAULT 1,
+            audio_track INTEGER NOT NULL DEFAULT 0,
+            orden INTEGER NOT NULL DEFAULT 0,
+            descripcion TEXT,
+            creado_en TEXT DEFAULT CURRENT_TIMESTAMP,
+            modificado_en TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Playlist de un canal: referencias a escenas existentes de `secuencias`.
+    # No duplica contenido — cada item es un puntero al secuencia_id.
+    # Cascade delete manual desde CanalModel (SQLite en este proyecto no fuerza FKs).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS canal_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            canal_id INTEGER NOT NULL,
+            secuencia_id INTEGER NOT NULL,
+            orden INTEGER NOT NULL,
+            duracion_override_seg INTEGER,
+            FOREIGN KEY (canal_id) REFERENCES canales(id),
+            FOREIGN KEY (secuencia_id) REFERENCES secuencias(id)
+        )
+    ''')
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_canal_items_canal "
+        "ON canal_items(canal_id, orden)"
+    )
+
     conn.commit()
     conn.close()
 
