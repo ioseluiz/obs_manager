@@ -13,8 +13,8 @@ muestra cuando el user selecciona un canal en el sidebar. Ofrece:
 - Playlist del canal con reordenar (▲ ▼) y editar override de duración.
 - Item activo mostrado en tiempo real (poll cada 500ms del estado).
 
-Instanciable en aislamiento — R-3 no reemplaza CanalView todavía; eso
-sucederá en R-4 cuando se una a la tab "Producción".
+Instanciable dentro de `ProduccionView` (R-4) como el panel central para
+canales regulares. Canal Principal usa `CanalPrincipalDetailView`.
 """
 from __future__ import annotations
 

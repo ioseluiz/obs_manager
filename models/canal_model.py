@@ -166,6 +166,49 @@ class CanalModel:
         finally:
             conn.close()
 
+    def duplicate_canal(self, canal_id: int,
+                        nombre_nuevo: str | None = None) -> int:
+        """Clona un canal y todos sus items. El nuevo arranca deshabilitado
+        para evitar que empiece a transmitir sin que el user lo revise.
+
+        Args:
+            canal_id: id del canal origen.
+            nombre_nuevo: nombre del clon; si es None se auto-genera como
+                "<nombre> (copia)" con incremento si ya está ocupado.
+
+        Retorna el id del canal recién creado. Levanta ValueError si el
+        canal origen no existe.
+        """
+        origen = self.get_canal(canal_id)
+        if origen is None:
+            raise ValueError(f"Canal {canal_id} no existe.")
+
+        if nombre_nuevo is None:
+            base = f"{origen['nombre']} (copia)"
+            candidato = base
+            i = 2
+            while self.canal_nombre_exists(candidato):
+                candidato = f"{base} {i}"
+                i += 1
+            nombre_nuevo = candidato
+
+        new_id = self.add_canal(
+            nombre=nombre_nuevo,
+            url_destino=origen["url_destino"],
+            encoder=origen["encoder"],
+            bitrate_kbps=int(origen["bitrate_kbps"]),
+            habilitado=False,  # safety: arranca apagado
+            audio_track=int(origen["audio_track"]),
+            descripcion=origen["descripcion"],
+        )
+        # Copiar items (preservando duracion_override_seg y orden implícito)
+        for it in self.get_items(canal_id):
+            self.add_item(
+                new_id, int(it["secuencia_id"]),
+                duracion_override_seg=it["duracion_override_seg"],
+            )
+        return new_id
+
     def reorder_canal(self, canal_id: int, direction: int) -> bool:
         """Intercambia orden con el canal vecino inmediato.
 
