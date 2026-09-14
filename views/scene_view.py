@@ -34,8 +34,17 @@ CSS_PLACEHOLDER = (
 
 
 class SceneView(QWidget):
-    def __init__(self):
+    def __init__(self, compact_mode: bool = False):
+        """SceneView tab.
+
+        compact_mode=True oculta los controles de reproducción (Iniciar/
+        Pausar/Prev/Next/Stop) — pensado para la pestaña "Biblioteca de
+        Escenas" donde el rotador legacy se opera desde su propio panel
+        en la pestaña "Producción" (Fase R). El resto de controles
+        (CRUD, previews, ajuste en vivo) siguen visibles.
+        """
         super().__init__()
+        self._compact_mode = compact_mode
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(8, 6, 8, 6)
         self.layout.setSpacing(6)
@@ -92,6 +101,14 @@ class SceneView(QWidget):
         controls_layout.addWidget(self.lbl_date)
 
         self.layout.addLayout(controls_layout)
+
+        # Ocultar controles de reproducción en modo Biblioteca.
+        # El SceneController sigue existiendo y sus señales quedan
+        # conectadas — se disparan desde el CanalPrincipalDetailView.
+        if self._compact_mode:
+            for w in (self.btn_start, self.btn_prev, self.btn_pause,
+                      self.btn_next, self.btn_stop, self.lbl_status):
+                w.setVisible(False)
 
         # --- TABLA DE ESCENAS ---
         self.table = QTableWidget(0, 7)
