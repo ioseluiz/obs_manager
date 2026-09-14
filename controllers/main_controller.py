@@ -261,7 +261,13 @@ class MainController:
             log.info("Rotador reanudado tras reconexión.")
 
     def _auto_apply_canales(self):
-        """Aplica en OBS los canales habilitados del modelo (Fase 1e)."""
+        """Aplica en OBS los canales habilitados del modelo (Fase 1e).
+
+        Después del apply, corre la validación de capacidad (Fase 2d):
+        si los canales configurados exceden la calibración persistida del
+        equipo, muestra un dialog informativo. Nunca auto-degrada — regla
+        firme de Fase 2.
+        """
         try:
             results = self.canal_controller.apply_all_habilitados()
         except Exception as e:
@@ -272,6 +278,71 @@ class MainController:
             log.info("Canales auto-aplicados a OBS: %d/%d.", ok, len(results))
             if hasattr(self, "produccion_view") and self.produccion_view is not None:
                 self.produccion_view.refresh()
+        self._validate_capacity_and_maybe_warn()
+
+    def _validate_capacity_and_maybe_warn(self):
+        """Compara canales habilitados vs calibración persistida (Fase 2d).
+
+        Si hay overloaded, abre un dialog non-bloqueante. Ejecutable
+        una sola vez por conexión — el flag `_capacity_warned_this_session`
+        evita spammear cada reconexión.
+        """
+        if getattr(self, "_capacity_warned_this_session", False):
+            return
+        try:
+            from core.capacity_repo import CapacityRepo, detect_fingerprint
+            from core.capacity_validator import validate_capacity
+        except Exception as e:
+            log.debug("Fase 2 no disponible: %s", e)
+            return
+
+        try:
+            # Fingerprint requiere obs_major — leemos del cliente si podemos
+            obs_major = 30
+            try:
+                ver = self.obs_client._raw_client().get_version()
+                obs_ver_str = getattr(ver, "obs_version", "") or ""
+                if obs_ver_str:
+                    obs_major = int(obs_ver_str.split(".", 1)[0])
+            except Exception:
+                pass
+            fp = detect_fingerprint(obs_major=obs_major)
+            repo = CapacityRepo()
+            entry = repo.get(fp)
+            canales = self.canal_model.get_all_canales()
+            result = validate_capacity(canales, entry)
+        except Exception as e:
+            log.warning("Validación de capacidad falló: %s", e)
+            return
+
+        if result.ok:
+            log.info("Capacity check OK: %s", result.reason)
+            return
+
+        # Overloaded — mostrar dialog
+        log.warning("Capacity check overloaded: %s", result.reason)
+        self._capacity_warned_this_session = True
+        try:
+            from views.capacity_validation_dialog import CapacityValidationDialog
+            dlg = CapacityValidationDialog(
+                result, parent=self.main_window,
+                on_go_to_produccion=self._focus_produccion_tab,
+            )
+            dlg.exec()
+        except Exception as e:
+            log.warning("No se pudo mostrar CapacityValidationDialog: %s", e)
+
+    def _focus_produccion_tab(self):
+        """Trae al frente la pestaña Producción — callback del dialog 2d."""
+        if not hasattr(self, "main_window") or self.main_window is None:
+            return
+        tabs = getattr(self.main_window, "tabs", None)
+        if tabs is None:
+            return
+        for i in range(tabs.count()):
+            if "Producción" in tabs.tabText(i):
+                tabs.setCurrentIndex(i)
+                return
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
