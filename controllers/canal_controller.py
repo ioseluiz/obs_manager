@@ -638,6 +638,41 @@ class CanalController(QObject):
             "remaining_ms": remaining_ms,
         }
 
+    def diagnose_filter(self, canal_id: int) -> dict[str, Any]:
+        """Lee los settings efectivos del filtro udp_out del canal desde OBS.
+
+        Devuelve un dict con:
+            - ok: bool
+            - scene_name: str (nombre esperado de la escena)
+            - filter_present: bool
+            - filter_enabled: bool | None
+            - settings: dict — los settings efectivos del filtro
+            - error: str si algo falló
+
+        Útil para diagnosticar por qué un canal fluye UDP pero VLC ve negro.
+        """
+        canal = self.canal_model.get_canal(canal_id)
+        if not canal:
+            return {"ok": False, "error": f"Canal id={canal_id} no existe"}
+        scene = canal["nombre"]
+        result: dict[str, Any] = {
+            "ok": False,
+            "scene_name": scene,
+            "filter_present": False,
+            "filter_enabled": None,
+            "settings": {},
+        }
+        try:
+            client = self._raw_client()
+            resp = client.get_source_filter(scene, "udp_out")
+            result["filter_present"] = True
+            result["filter_enabled"] = bool(resp.filter_enabled)
+            result["settings"] = dict(resp.filter_settings)
+            result["ok"] = True
+        except Exception as e:
+            result["error"] = str(e)
+        return result
+
     # Método interno expuesto para tests headless: fuerza un tick del rotador.
     # No usar en runtime — el QTimer maneja las transiciones.
     def _test_tick(self, canal_id: int) -> None:

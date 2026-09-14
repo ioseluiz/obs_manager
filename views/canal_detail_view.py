@@ -135,6 +135,14 @@ class CanalDetailView(QWidget):
             "editar items o si OBS se reinició."
         )
         toolbar.addWidget(self.btn_apply)
+
+        self.btn_diagnose = QPushButton("🔬 Diagnóstico")
+        self.btn_diagnose.setMinimumHeight(32)
+        self.btn_diagnose.setToolTip(
+            "Lee los settings efectivos del filtro udp_out desde OBS. "
+            "Útil cuando VLC recibe stream pero ve negro."
+        )
+        toolbar.addWidget(self.btn_diagnose)
         root.addLayout(toolbar)
 
         # Playlist frame
@@ -192,6 +200,7 @@ class CanalDetailView(QWidget):
         self.btn_next.clicked.connect(self._on_next)
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_apply.clicked.connect(self._on_apply)
+        self.btn_diagnose.clicked.connect(self._on_diagnose)
 
         self.btn_add_item.clicked.connect(self._on_add_item)
         self.btn_remove_item.clicked.connect(self._on_remove_item)
@@ -246,8 +255,9 @@ class CanalDetailView(QWidget):
     def _set_controls_enabled(self, enabled: bool):
         for w in (self.btn_transmit, self.btn_play, self.btn_prev,
                   self.btn_pause, self.btn_next, self.btn_stop,
-                  self.btn_apply, self.btn_add_item, self.btn_remove_item,
-                  self.btn_up_item, self.btn_down_item, self.btn_edit_item):
+                  self.btn_apply, self.btn_diagnose, self.btn_add_item,
+                  self.btn_remove_item, self.btn_up_item, self.btn_down_item,
+                  self.btn_edit_item):
             w.setEnabled(enabled)
 
     def _refresh_status_only(self):
@@ -413,6 +423,67 @@ class CanalDetailView(QWidget):
             return
         self.canal_changed.emit(self._canal_id)
         self.refresh()
+
+    def _on_diagnose(self):
+        """Muestra los settings efectivos del filtro udp_out en un diálogo.
+
+        Usa la conexión OBS ya autenticada de la app — evita el problema del
+        script standalone que falla el auth handshake con Python 3.14.
+        """
+        if self._canal_id is None:
+            return
+        result = self.canal_controller.diagnose_filter(self._canal_id)
+        if not result.get("ok"):
+            err = result.get("error", "razón desconocida")
+            QMessageBox.warning(
+                self, "Diagnóstico del filtro",
+                f"No se pudo leer el filtro udp_out.\n\n{err}\n\n"
+                f"Verifique que el canal esté aplicado en OBS "
+                f"(📡 Aplicar cambios).",
+            )
+            return
+        settings = result["settings"]
+        lines = [
+            f"Escena: {result['scene_name']}",
+            f"Filtro udp_out habilitado: {result['filter_enabled']}",
+            "",
+            "SETTINGS EFECTIVOS:",
+        ]
+        for k in sorted(settings.keys()):
+            lines.append(f"  {k:<24} {settings[k]!r}")
+        lines.append("")
+        # Chequeo de settings clave para stream UDP decodable
+        lines.append("CHECKLIST STREAM UDP DECODABLE:")
+        checks = [
+            ("stream_mode", 1, "streaming ON"),
+            ("keyint_sec", None, "keyframes frecuentes — 0 o ausente = malo"),
+            ("profile", None, "perfil H.264 — 'high' recomendado"),
+            ("tune", None, "'zerolatency' para stream en vivo"),
+            ("preset", None, "'veryfast' default OBS"),
+        ]
+        for key, expected, note in checks:
+            val = settings.get(key, "<ausente>")
+            ok_mark = "OK " if (key in settings and (
+                expected is None or val == expected
+            )) else "?? "
+            lines.append(f"  {ok_mark}{key} = {val!r}  — {note}")
+
+        # Diálogo con selección/copia
+        from PyQt6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Diagnóstico del filtro udp_out")
+        dlg.resize(600, 500)
+        v = QVBoxLayout(dlg)
+        txt = QTextEdit()
+        txt.setReadOnly(True)
+        txt.setFontFamily("Consolas")
+        txt.setPlainText("\n".join(lines))
+        v.addWidget(txt)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        v.addWidget(bb)
+        dlg.exec()
 
     # ------------------------------------------------------------------
     # Slots — items
