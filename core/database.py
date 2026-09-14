@@ -84,6 +84,14 @@ def init_db():
         )
     ''')
 
+    # Migración: resolución y fps por canal (config por-salida — Opción B de
+    # Fase 2). Sin estos, todos los canales cuentan como 1080p30 para el
+    # validador. Con estos, cada canal declara su preset explícito y el
+    # validador computa el costo real via budget_cost().
+    _add_column_if_missing(cursor, "canales", "output_width", "INTEGER DEFAULT 1920")
+    _add_column_if_missing(cursor, "canales", "output_height", "INTEGER DEFAULT 1080")
+    _add_column_if_missing(cursor, "canales", "output_fps", "INTEGER DEFAULT 30")
+
     # Playlist de un canal: referencias a escenas existentes de `secuencias`.
     # No duplica contenido — cada item es un puntero al secuencia_id.
     # Cascade delete manual desde CanalModel (SQLite en este proyecto no fuerza FKs).

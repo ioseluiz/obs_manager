@@ -113,6 +113,49 @@ def main():
     _check(r.ok is False, "canales sin encoder cuentan como x264 y exceden")
     _check("x264" in r.overloaded_encoders, "marcado x264 overloaded")
 
+    # === Test 8: preset derivado del output_width/height/fps ===
+    print("\n[Preset derivado por canal — 720p60 y 1080p60 cuestan más]")
+    from core.capacity_validator import _derive_preset
+
+    _check(_derive_preset({"output_height": 1080, "output_fps": 30}) == "1080p30",
+           "1080/30 → 1080p30")
+    _check(_derive_preset({"output_height": 720, "output_fps": 60}) == "720p60",
+           "720/60 → 720p60")
+    _check(_derive_preset({"output_height": 1080, "output_fps": 60}) == "1080p60",
+           "1080/60 → 1080p60")
+    _check(_derive_preset({"output_height": 2160, "output_fps": 30}) == "4k30",
+           "2160/30 → 4k30")
+    _check(_derive_preset({}) == "1080p30", "sin fields → 1080p30 fallback")
+
+    # === Test 9: canal 1080p60 cuesta 2 en el validador ===
+    print("\n[Canal 1080p60 cuesta 2 vs 1080p30 cuesta 1]")
+    entry = CapacityEntry.new(fp).with_encoder("x264", 2)
+    canales = [
+        # Un solo canal 1080p60 = costo 2 = exactamente al límite
+        {"nombre": "c1", "habilitado": True, "encoder": "x264",
+         "output_height": 1080, "output_fps": 60},
+    ]
+    r = validate_capacity(canales, entry)
+    _check(r.ok is True, "un canal 1080p60 con nmax=2 pasa exacto")
+    _check(r.used_by_encoder.get("x264") == 2.0, "used=2.0 (1080p60)")
+
+    # Dos canales 1080p60 = costo 4, con nmax=2 → excede
+    canales.append(dict(canales[0], nombre="c2"))
+    r = validate_capacity(canales, entry)
+    _check(r.ok is False, "dos canales 1080p60 con nmax=2 excede")
+    _check(r.used_by_encoder.get("x264") == 4.0, "used=4.0")
+
+    # Un 1080p30 + un 720p30 = 1 + 0.5 = 1.5 < 2 → ok
+    canales_mix = [
+        {"nombre": "cA", "habilitado": True, "encoder": "x264",
+         "output_height": 1080, "output_fps": 30},
+        {"nombre": "cB", "habilitado": True, "encoder": "x264",
+         "output_height": 720, "output_fps": 30},
+    ]
+    r = validate_capacity(canales_mix, entry)
+    _check(r.ok is True, "1080p30 + 720p30 = 1.5 pasa con nmax=2")
+    _check(r.used_by_encoder.get("x264") == 1.5, "used=1.5 (1.0 + 0.5)")
+
     print("\nTODOS LOS CHECKS PASARON")
 
 

@@ -36,6 +36,30 @@ class ValidationResult:
     suggestions: list[str] = field(default_factory=list)
 
 
+def _derive_preset(canal: dict[str, Any]) -> str:
+    """Deriva un preset ('1080p30', '720p60', ...) del output_width/height/fps
+    del canal. Fallback a '1080p30' si faltan datos.
+
+    Regla: usar la altura (más estable en presets de video) + fps.
+    """
+    height = int(canal.get("output_height") or 1080)
+    fps = int(canal.get("output_fps") or 30)
+    # Redondear al preset conocido más cercano (720/1080/1440/2160)
+    if height >= 1800:
+        h_label = "4k"
+    elif height >= 1300:
+        h_label = "1440p"
+    elif height >= 900:
+        h_label = "1080p"
+    elif height >= 600:
+        h_label = "720p"
+    else:
+        h_label = "1080p"  # muy baja, no la castigamos
+    # fps: 30 o 60 mayoritariamente
+    fps_label = "60" if fps >= 50 else "30"
+    return f"{h_label}{fps_label}"
+
+
 def validate_capacity(
     canales: list[dict[str, Any]],
     entry: CapacityEntry | None,
@@ -64,13 +88,13 @@ def validate_capacity(
             reason="Sin calibración previa para este equipo — no se validó.",
         )
 
-    # Agrupar costo por encoder
+    # Agrupar costo por encoder — cada canal aporta budget_cost(preset).
+    # Deriva el preset del output_width/height/fps del canal (Opción B,
+    # Fase 2). Sin esos fields (DB legacy), asume 1080p30.
     used: dict[str, float] = {}
     for c in used_habilitados:
         enc = (c.get("encoder") or "x264").lower()
-        # TODO: cuando el modelo guarde resolution/fps, extraer preset real.
-        # Por ahora todos los canales cuentan como 1080p30 (baseline).
-        preset = c.get("preset") or "1080p30"
+        preset = c.get("preset") or _derive_preset(c)
         cost = budget_cost(preset)
         used[enc] = used.get(enc, 0.0) + cost
 
