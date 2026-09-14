@@ -40,6 +40,11 @@ class _RotatorState:
     playlist: list[tuple[int, int]] = field(default_factory=list)
     active_index: int = -1
     timer: QTimer | None = None
+    # Pausa/resume: cuando is_paused=True, remaining_ms guarda el tiempo
+    # que le quedaba al timer al pausarse. Al resumir, arranca un nuevo
+    # timer con ese remaining. Ver pause_rotator/resume_rotator.
+    is_paused: bool = False
+    remaining_ms: int = 0
 
 
 class CanalController(QObject):
@@ -300,6 +305,8 @@ class CanalController(QObject):
         if state.timer is not None:
             state.timer.stop()
             state.timer = None
+        state.is_paused = False
+        state.remaining_ms = 0
         if not self._connected:
             return
         with self._lock():
@@ -312,6 +319,81 @@ class CanalController(QObject):
                 except Exception as e:
                     log.debug("hide scene item %d falló: %s", si_id, e)
         state.active_index = -1
+
+    def pause_rotator(self, canal_id: int) -> bool:
+        """Congela la rotación en el item actual sin ocultarlo.
+
+        Retorna True si pausó, False si el rotador no estaba corriendo o
+        ya estaba pausado.
+        """
+        state = self._rotators.get(canal_id)
+        if not state or state.timer is None or state.is_paused:
+            return False
+        # Guardar tiempo restante antes de parar el timer
+        remaining = state.timer.remainingTime()
+        state.remaining_ms = max(0, int(remaining)) if remaining > 0 else 0
+        state.timer.stop()
+        state.is_paused = True
+        return True
+
+    def resume_rotator(self, canal_id: int) -> bool:
+        """Reanuda un rotador pausado con el tiempo que le quedaba.
+
+        Retorna True si reanudó, False si el rotador no estaba pausado.
+        """
+        state = self._rotators.get(canal_id)
+        if not state or not state.is_paused:
+            return False
+        if state.timer is None:
+            # El timer fue destruido; recreamos avanzando desde el item actual
+            state.is_paused = False
+            state.remaining_ms = 0
+            # Retroceder 1 para que _advance vuelva a mostrar el mismo item
+            n = len(state.playlist)
+            if n > 0 and 0 <= state.active_index < n:
+                state.active_index = (state.active_index - 1) % n
+            self._advance(state)
+            return True
+        # Restart con el remaining guardado (mínimo 100ms para no fire inmediato)
+        wait_ms = max(100, state.remaining_ms) if state.remaining_ms > 0 else 1000
+        state.timer.start(wait_ms)
+        state.is_paused = False
+        state.remaining_ms = 0
+        return True
+
+    def next_item(self, canal_id: int) -> bool:
+        """Salta al siguiente item, cortando el tiempo restante actual."""
+        state = self._rotators.get(canal_id)
+        if not state or not state.playlist:
+            return False
+        if state.timer is not None:
+            state.timer.stop()
+        state.is_paused = False
+        state.remaining_ms = 0
+        # _advance ya avanza el índice y muestra el item + agenda timer
+        self._advance(state)
+        return True
+
+    def prev_item(self, canal_id: int) -> bool:
+        """Retrocede al item anterior (wraps al último si estamos en el primero)."""
+        state = self._rotators.get(canal_id)
+        if not state or not state.playlist:
+            return False
+        if state.timer is not None:
+            state.timer.stop()
+        state.is_paused = False
+        state.remaining_ms = 0
+        n = len(state.playlist)
+        # Truco: seteamos active_index tal que _advance nos deje en actual-1.
+        # _advance hace (active_index + 1) % n al mostrar el nuevo, así que
+        # queremos que ese cómputo dé (actual - 1) mod n.
+        if state.active_index < 0:
+            # Rotator no arrancó — prev antes de start deja en el último.
+            state.active_index = n - 2
+        else:
+            state.active_index = (state.active_index - 2) % n
+        self._advance(state)
+        return True
 
     def _advance(self, state: _RotatorState) -> None:
         """Oculta el item activo, muestra el siguiente, agenda el próximo tick."""
@@ -372,8 +454,13 @@ class CanalController(QObject):
             "applied": True,
             "scene_name": state.scene_name,
             "item_count": len(state.playlist),
+            "active_index": state.active_index,
             "active_item_id": active,
-            "rotator_running": state.timer is not None and state.timer.isActive(),
+            "rotator_running": (
+                state.timer is not None and state.timer.isActive()
+                and not state.is_paused
+            ),
+            "is_paused": state.is_paused,
         }
 
     # Método interno expuesto para tests headless: fuerza un tick del rotador.
