@@ -10,11 +10,13 @@ class SettingsDialog(QDialog):
     # Emitida al pulsar "Probar conexión". El controller la usa para lanzar
     # un OBSProbeWorker con un cliente desechable (no toca la sesión activa).
     test_connection_requested = pyqtSignal(dict)
+    # Emitida al pulsar "Re-calibrar este equipo" (Fase 2e).
+    recalibrate_requested = pyqtSignal()
 
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Conexión OBS")
-        self.setFixedSize(520, 440)
+        self.setFixedSize(520, 560)
 
         layout = QVBoxLayout(self)
 
@@ -74,6 +76,28 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(launch_group)
 
+        # --- Calibración de capacidad (Fase 2e) ---
+        cal_group = QGroupBox("Calibración de capacidad (Fase 2)")
+        cal_layout = QVBoxLayout(cal_group)
+
+        self.lbl_cal_status = QLabel("Sin datos de calibración.")
+        self.lbl_cal_status.setWordWrap(True)
+        self.lbl_cal_status.setStyleSheet("color: #495057;")
+        cal_layout.addWidget(self.lbl_cal_status)
+
+        cal_row = QHBoxLayout()
+        cal_row.addStretch(1)
+        self.btn_recalibrate = QPushButton("🔬 Re-calibrar este equipo")
+        self.btn_recalibrate.setToolTip(
+            "Corre la calibración automática: mide cuántos canales UDP "
+            "simultáneos aguanta cada encoder en este equipo. "
+            "Toma ~60 segundos por encoder."
+        )
+        cal_row.addWidget(self.btn_recalibrate)
+        cal_layout.addLayout(cal_row)
+
+        layout.addWidget(cal_group)
+
         # --- Botones inferiores ---
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar y Conectar")
@@ -89,6 +113,7 @@ class SettingsDialog(QDialog):
         self.btn_detect.clicked.connect(self._on_detect)
         self.btn_browse.clicked.connect(self._on_browse)
         self.btn_test.clicked.connect(self._on_test_clicked)
+        self.btn_recalibrate.clicked.connect(self.recalibrate_requested.emit)
 
     def _on_test_clicked(self):
         self.test_connection_requested.emit({
@@ -131,6 +156,34 @@ class SettingsDialog(QDialog):
         )
         if path:
             self.obs_exe_input.setText(path)
+
+    def set_calibration_status(self, entry) -> None:
+        """Actualiza el label de calibración con la info del CapacityEntry.
+
+        entry: CapacityEntry para el fingerprint actual, o None si no hay.
+        """
+        if entry is None:
+            self.lbl_cal_status.setStyleSheet("color: #FD7E14;")
+            self.lbl_cal_status.setText(
+                "⚠ Este equipo aún no fue calibrado. Se recomienda "
+                "calibrar antes de configurar canales multi-salida."
+            )
+            return
+        if not entry.encoders:
+            self.lbl_cal_status.setStyleSheet("color: #FD7E14;")
+            self.lbl_cal_status.setText(
+                f"⚠ Calibración presente pero sin encoders medidos "
+                f"({entry.notes or 'sin detalle'})."
+            )
+            return
+        # Formato: "Última: 2026-09-14 · x264=2, qsv=3"
+        fecha = entry.calibrated_at[:10] if entry.calibrated_at else "?"
+        encs = ", ".join(f"{k}={v}" for k, v in sorted(entry.encoders.items()))
+        note_suffix = f"  ({entry.notes})" if entry.notes else ""
+        self.lbl_cal_status.setStyleSheet("color: #198754;")
+        self.lbl_cal_status.setText(
+            f"✓ Calibrado el {fecha} · Capacidad (1080p30): {encs}{note_suffix}"
+        )
 
     def get_inputs(self):
         return {

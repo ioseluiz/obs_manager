@@ -131,6 +131,15 @@ class MainController:
         dialog.test_connection_requested.connect(
             lambda params, d=dialog: self._probe_connection(params, d)
         )
+        # Fase 2e: mostrar estado de calibración en el diálogo + wire el botón
+        # de re-calibrar. Requiere conexión activa a OBS para el fingerprint.
+        try:
+            self._populate_settings_calibration(dialog)
+        except Exception as e:
+            log.debug("No se pudo poblar estado de calibración: %s", e)
+        dialog.recalibrate_requested.connect(
+            lambda d=dialog: self._on_recalibrate_requested(d)
+        )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
@@ -317,6 +326,10 @@ class MainController:
 
         if result.ok:
             log.info("Capacity check OK: %s", result.reason)
+            # Fase 2e: si no hay calibración aún, invitar a calibrar.
+            # Non-bloqueante, una vez por sesión.
+            if entry is None:
+                self._maybe_invite_first_calibration()
             return
 
         # Overloaded — mostrar dialog
@@ -343,6 +356,124 @@ class MainController:
             if "Producción" in tabs.tabText(i):
                 tabs.setCurrentIndex(i)
                 return
+
+    # ------------------------------------------------------------------
+    # Fase 2e — settings de calibración + primer-run
+    # ------------------------------------------------------------------
+
+    def _current_fingerprint(self):
+        """Devuelve el Fingerprint del equipo actual, o None si no se puede."""
+        try:
+            from core.capacity_repo import detect_fingerprint
+            obs_major = 30
+            try:
+                ver = self.obs_client._raw_client().get_version()
+                obs_ver_str = getattr(ver, "obs_version", "") or ""
+                if obs_ver_str:
+                    obs_major = int(obs_ver_str.split(".", 1)[0])
+            except Exception:
+                pass
+            return detect_fingerprint(obs_major=obs_major)
+        except Exception as e:
+            log.debug("No se pudo obtener fingerprint: %s", e)
+            return None
+
+    def _populate_settings_calibration(self, dialog):
+        """Carga el estado actual de calibración en el SettingsDialog."""
+        from core.capacity_repo import CapacityRepo
+        fp = self._current_fingerprint()
+        if fp is None:
+            return
+        entry = CapacityRepo().get(fp)
+        dialog.set_calibration_status(entry)
+
+    def _on_recalibrate_requested(self, settings_dialog):
+        """Handler del botón 'Re-calibrar' en Settings.
+
+        Lanza el CalibrationDialog. Al terminar, refresca el label del
+        SettingsDialog con la nueva calibración.
+        """
+        if not self.obs_client.client:
+            QMessageBox.warning(
+                settings_dialog, "Re-calibrar",
+                "Conectate a OBS primero — la calibración necesita "
+                "crear escenas y filtros en OBS.",
+            )
+            return
+        self._launch_calibration_dialog(parent=settings_dialog,
+                                        on_finish=lambda: self._populate_settings_calibration(settings_dialog))
+
+    def _launch_calibration_dialog(self, parent=None, on_finish=None,
+                                    encoders=None):
+        """Instancia y muestra el CalibrationDialog con dependencies armadas.
+
+        encoders: lista de shortnames a calibrar; por defecto los conocidos
+            del plugin Source Record.
+        on_finish: callback opcional al cerrar el dialog.
+        """
+        try:
+            from core.calibration_engine import CalibrationEngine
+            from core.calibration_facade import RealObsFacade
+            from core.capacity_repo import CapacityRepo
+            from views.calibration_dialog import CalibrationDialog
+        except Exception as e:
+            log.warning("No se pudo cargar módulos de Fase 2: %s", e)
+            return
+        fp = self._current_fingerprint()
+        if fp is None:
+            QMessageBox.warning(
+                parent or self.main_window, "Calibración",
+                "No se pudo detectar el equipo. Verifique la conexión a OBS.",
+            )
+            return
+        facade = RealObsFacade(self.obs_client)
+        engine = CalibrationEngine(facade=facade)
+        repo = CapacityRepo()
+        encoders = encoders or ["x264", "qsv", "nvenc", "amf"]
+        dlg = CalibrationDialog(
+            engine, encoders=encoders, fingerprint=fp,
+            capacity_repo=repo, parent=parent or self.main_window,
+        )
+        dlg.exec()
+        if on_finish is not None:
+            try:
+                on_finish()
+            except Exception:
+                pass
+
+    def _maybe_invite_first_calibration(self):
+        """Si no hay calibración para el equipo actual, invita a hacerla.
+
+        Non-bloqueante. Se dispara UNA vez por sesión (flag).
+        """
+        if getattr(self, "_first_cal_invited_this_session", False):
+            return
+        try:
+            from core.capacity_repo import CapacityRepo
+            fp = self._current_fingerprint()
+            if fp is None:
+                return
+            entry = CapacityRepo().get(fp)
+            if entry is not None:
+                return  # Ya calibrado
+        except Exception as e:
+            log.debug("Skip invitación calibración: %s", e)
+            return
+        self._first_cal_invited_this_session = True
+        answer = QMessageBox.question(
+            self.main_window,
+            "Calibración recomendada",
+            "Este equipo aún no fue calibrado. Sin calibración, la app "
+            "no puede validar si los canales que configures excederán "
+            "la capacidad del encoder.\n\n"
+            "La calibración toma ~60 segundos por encoder y crea una "
+            "escena baseline temporal en OBS.\n\n"
+            "¿Calibrar ahora?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._launch_calibration_dialog()
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
