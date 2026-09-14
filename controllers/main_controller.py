@@ -19,7 +19,14 @@ from models.countdown_model import CountdownModel
 from views.countdown_view import CountdownView
 from controllers.countdown_controller import CountdownController
 
-from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker
+from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
+
+
+_LOCAL_HOSTS = ("", "localhost", "127.0.0.1", "::1", "[::1]")
+
+
+def _is_local_host(host: str) -> bool:
+    return (host or "").strip().lower() in _LOCAL_HOSTS
 
 import logging
 import sys
@@ -100,6 +107,9 @@ class MainController:
     def open_settings(self):
         current_settings = self.settings_model.get_settings()
         dialog = SettingsDialog(current_settings, self.main_window)
+        dialog.test_connection_requested.connect(
+            lambda params, d=dialog: self._probe_connection(params, d)
+        )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
@@ -113,6 +123,24 @@ class MainController:
                 new_settings["obs_autolaunch"]
             )
             self.connect_to_obs()
+
+    def _probe_connection(self, params: dict, dialog):
+        """Prueba credenciales/host sin tocar la conexión productiva ni auto-launch."""
+        try:
+            port = int(params.get("port") or 0)
+        except (TypeError, ValueError):
+            dialog.set_test_result(False, "Puerto inválido.")
+            return
+        host = (params.get("host") or "").strip()
+        if not host:
+            dialog.set_test_result(False, "Host / IP vacío.")
+            return
+        dialog.set_test_pending()
+        worker = OBSProbeWorker(host, port, params.get("password") or "", timeout=3.0)
+        worker.finished_probe.connect(dialog.set_test_result)
+        # Retener referencia en el diálogo para que el GC no mate el thread
+        dialog._probe_worker = worker
+        worker.start()
 
     def connect_to_obs(self):
         self.main_window.statusBar().showMessage("Conectando a OBS...")
@@ -193,8 +221,13 @@ class MainController:
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
-        # Si el usuario activó auto-launch y OBS no está corriendo, intentamos abrirlo.
+        host = settings.get("host", "")
+        port = settings.get("port", "4455")
+        # Auto-launch de OBS local sólo tiene sentido si el host apunta a esta misma máquina.
+        # Con host remoto, lanzar un OBS local es contraproducente: crea una ventana OBS
+        # inservible y espera 30s antes de mostrar el error real de red.
         if (sys.platform == "win32"
+                and _is_local_host(host)
                 and settings.get("obs_autolaunch", True)
                 and not obs_launcher.is_obs_running()):
             exe_path = settings.get("obs_exe_path") or obs_launcher.find_obs_executable()
@@ -203,16 +236,15 @@ class MainController:
                 return
             log.warning("Auto-launch activo pero no se encontró obs64.exe.")
 
-        self._show_connection_error(error_message)
+        self._show_connection_error(error_message, host=host, port=port)
 
-    def _show_connection_error(self, error_message):
+    def _show_connection_error(self, error_message, host: str = "", port: str = "4455"):
+        from core.obs_errors import friendly_error
         self.main_window.statusBar().showMessage("Error de conexión")
         self.main_window.btn_connect.setEnabled(True)
         self.main_window.set_connection_ui(False)
-        QMessageBox.critical(
-            self.main_window, "Error de Conexión",
-            f"No se pudo conectar a OBS:\n{error_message}"
-        )
+        friendly = friendly_error(error_message, host, port)
+        QMessageBox.critical(self.main_window, "Error de Conexión", friendly)
 
     def _start_autolaunch(self, exe_path, settings):
         log.info("Iniciando auto-launch de OBS desde: %s", exe_path)

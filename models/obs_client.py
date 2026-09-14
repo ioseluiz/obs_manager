@@ -4,7 +4,19 @@ import base64
 import logging
 import threading
 
+from obsws_python.error import OBSSDKTimeoutError
+
+try:
+    from websocket import WebSocketConnectionClosedException
+except ImportError:  # pragma: no cover - websocket-client siempre está presente
+    class WebSocketConnectionClosedException(Exception):
+        pass
+
 log = logging.getLogger(__name__)
+
+# Errores que dejan el socket inservible: hay que descartar la sesión, no
+# reintentar sobre ella. Ver _GuardedClient.
+_FATAL_SOCKET_ERRORS = (OBSSDKTimeoutError, WebSocketConnectionClosedException)
 
 VIDEO_EXTS = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.m4v')
 IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
@@ -18,6 +30,53 @@ def is_image_file(path):
     return bool(path) and path.lower().endswith(IMAGE_EXTS)
 
 
+class _GuardedClient:
+    """Proxy sobre ReqClient que descarta la sesión si el socket se envenena.
+
+    `obsws_python.baseclient.req()` genera un `requestId` aleatorio y NUNCA lo
+    compara contra la respuesta: hace `ws.send()` y asume que el siguiente
+    frame recibido es el suyo. Si un request expira por timeout, la respuesta
+    en vuelo queda encolada en el socket y el request SIGUIENTE lee la
+    respuesta del anterior — la conexión queda corrida en uno de forma
+    permanente y todos los wrappers empiezan a devolver datos verosímiles
+    pero falsos (el transform de otra escena, el status de otro output…).
+
+    Esto era latente mientras el timeout era None (bloqueo indefinido), pero
+    ahora `connect()` fija un timeout que websocket-client aplica a CADA
+    `recv()` posterior, no solo al handshake — así que el escenario es real.
+
+    Al detectarlo anulamos `owner.client`, con lo que la app se da por
+    desconectada y `OBSWatchdog` reconecta limpio en su siguiente ping.
+    """
+
+    __slots__ = ("_inner", "_owner")
+
+    def __init__(self, inner, owner):
+        # Slots declarados => la búsqueda normal de atributos los encuentra y
+        # __getattr__ no se dispara para ellos (sin riesgo de recursión).
+        self._inner = inner
+        self._owner = owner
+
+    def __getattr__(self, name):
+        attr = getattr(self._inner, name)
+        if not callable(attr):
+            return attr
+
+        def _guarded(*args, **kwargs):
+            try:
+                return attr(*args, **kwargs)
+            except _FATAL_SOCKET_ERRORS as e:
+                log.warning(
+                    "Socket de OBS inservible tras '%s' (%s: %s). Se descarta "
+                    "la sesión para que el watchdog reconecte.",
+                    name, type(e).__name__, e,
+                )
+                self._owner._invalidate_session(self)
+                raise
+
+        return _guarded
+
+
 class OBSClient:
     def __init__(self):
         self.client = None
@@ -28,7 +87,7 @@ class OBSClient:
         # (worker de preview, timer del rotador, UI) debe usarlo.
         self._client_lock = threading.RLock()
 
-    def connect(self, host="localhost", port=4455, password=""):
+    def connect(self, host="localhost", port=4455, password="", timeout=5.0):
         # Cerrar cliente previo para evitar sockets huérfanos que rompen el handshake
         if self.client:
             try:
@@ -37,12 +96,30 @@ class OBSClient:
                 pass
             self.client = None
         try:
-            self.client = obs.ReqClient(host=host, port=port, password=password)
+            self.client = _GuardedClient(
+                obs.ReqClient(
+                    host=host, port=port, password=password, timeout=timeout,
+                ),
+                self,
+            )
             self._refresh_canvas_size()
+            # _refresh_canvas_size puede haber descartado la sesión si el
+            # primer request expiró; no reportar éxito en ese caso.
+            if not self.client:
+                return False, "La conexión expiró al leer los ajustes de video."
             return True, "Conexión exitosa"
         except Exception as e:
             self.client = None
             return False, str(e)
+
+    def _invalidate_session(self, guard):
+        """Descarta el cliente envenenado. Llamado por _GuardedClient.
+
+        Solo anula si `guard` sigue siendo el cliente vigente: si el watchdog
+        ya reconectó, no debemos matar la sesión nueva.
+        """
+        if self.client is guard:
+            self.client = None
 
     def _refresh_canvas_size(self):
         """Consulta dimensiones del canvas de OBS. Fallback silencioso a 1920x1080."""
@@ -365,39 +442,48 @@ class OBSClient:
         """
         if not self.client:
             return None
-        try:
-            resp = self.client.get_source_screenshot(
-                source_name, "jpeg", int(width), int(height), 60
-            )
-            img_data = getattr(resp, "image_data", None)
-            if not img_data:
+        # Serializado: lo llaman el hilo de UI (thumbnails de la tabla) y el
+        # worker de preview. Sin el lock dos hilos pueden cruzar respuestas
+        # sobre el mismo socket (ver _GuardedClient).
+        with self._client_lock:
+            if not self.client:
                 return None
-            # Formato de OBS: "data:image/jpeg;base64,<base64>"
-            if img_data.startswith("data:"):
-                return img_data.split(",", 1)[1]
-            return img_data
-        except Exception as e:
-            log.debug("Screenshot falló para %s: %s", source_name, e)
-            return None
+            try:
+                resp = self.client.get_source_screenshot(
+                    source_name, "jpeg", int(width), int(height), 60
+                )
+                img_data = getattr(resp, "image_data", None)
+                if not img_data:
+                    return None
+                # Formato de OBS: "data:image/jpeg;base64,<base64>"
+                if img_data.startswith("data:"):
+                    return img_data.split(",", 1)[1]
+                return img_data
+            except Exception as e:
+                log.debug("Screenshot falló para %s: %s", source_name, e)
+                return None
 
     def list_input_names(self):
         """Devuelve un set con los nombres de todos los inputs de OBS, o None si falla."""
         if not self.client:
             return None
-        try:
-            resp = self.client.get_input_list()
-            inputs = getattr(resp, "inputs", []) or []
-            names = set()
-            for item in inputs:
-                # Cada item viene como dict con la clave 'inputName'
-                if isinstance(item, dict):
-                    n = item.get("inputName")
-                    if n:
-                        names.add(n)
-            return names
-        except Exception as e:
-            log.warning("list_input_names falló: %s", e)
-            return None
+        with self._client_lock:
+            if not self.client:
+                return None
+            try:
+                resp = self.client.get_input_list()
+                inputs = getattr(resp, "inputs", []) or []
+                names = set()
+                for item in inputs:
+                    # Cada item viene como dict con la clave 'inputName'
+                    if isinstance(item, dict):
+                        n = item.get("inputName")
+                        if n:
+                            names.add(n)
+                return names
+            except Exception as e:
+                log.warning("list_input_names falló: %s", e)
+                return None
 
     def list_text_input_names(self):
         """Devuelve un set con los nombres de text sources de OBS, o None si falla.
@@ -431,24 +517,28 @@ class OBSClient:
         """
         if not self.client:
             return None
-        try:
-            resp = self.client.get_scene_list()
-            scenes = getattr(resp, "scenes", None) or []
-            names = []
-            for item in scenes:
-                if isinstance(item, dict):
-                    n = (item.get("sceneName")
-                         or item.get("scene_name")
-                         or item.get("name"))
-                    if n:
-                        names.append(n)
-                elif isinstance(item, str):
-                    names.append(item)
-            log.info("list_scene_names devolvió %d escenas: %s", len(names), names)
-            return names
-        except Exception as e:
-            log.warning("list_scene_names falló: %s", e)
-            return None
+        with self._client_lock:
+            if not self.client:
+                return None
+            try:
+                resp = self.client.get_scene_list()
+                scenes = getattr(resp, "scenes", None) or []
+                names = []
+                for item in scenes:
+                    if isinstance(item, dict):
+                        n = (item.get("sceneName")
+                             or item.get("scene_name")
+                             or item.get("name"))
+                        if n:
+                            names.append(n)
+                    elif isinstance(item, str):
+                        names.append(item)
+                log.info("list_scene_names devolvió %d escenas: %s",
+                         len(names), names)
+                return names
+            except Exception as e:
+                log.warning("list_scene_names falló: %s", e)
+                return None
 
     def position_countdown_sources(self, scene_name, source_names,
                                     x_pct=50, y_pct=50, spread_pct=100,

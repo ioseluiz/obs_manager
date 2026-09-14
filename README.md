@@ -113,7 +113,45 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 
 4. **Vincular la Aplicación:**
    - En el botón ⚙ Ajustes de la app, ingresar las credenciales de OBS.
+   - Botón **Probar conexión** valida sin guardar (útil para iterar IP/contraseña/firewall).
    - Al conectar se genera automáticamente un archivo `.env` para persistir la configuración.
+
+## 🌐 Conectar a OBS en otro equipo
+
+Cuando OBS Studio corre en una máquina distinta a la app (setup típico: PC de operación separado del PC de streaming), hay que preparar ambos lados.
+
+### En el equipo con OBS Studio
+
+1. Habilitar el servidor WebSocket (Herramientas → *WebSocket Server Settings*), fijar puerto (default 4455) y contraseña.
+2. Abrir el puerto en el firewall de Windows. En PowerShell **como Administrador**:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "OBS WebSocket 4455" -Direction Inbound -Protocol TCP -LocalPort 4455 -Action Allow
+   ```
+
+3. Anotar la IP LAN del equipo:
+
+   ```powershell
+   ipconfig | Select-String "IPv4"
+   ```
+
+### En el equipo con la app
+
+1. Abrir ⚙ Ajustes → poner en **Host / IP** la IP del equipo con OBS (no `localhost`). Puerto y contraseña iguales a los de OBS.
+2. Pulsar **Probar conexión** antes de Guardar. Si falla, el label rojo muestra el error exacto (auth, timeout, conexión rechazada) sin tocar la sesión activa.
+3. Si `Probar conexión` da timeout: verificar conectividad TCP al equipo remoto:
+
+   ```powershell
+   Test-NetConnection -ComputerName 192.168.1.42 -Port 4455
+   ```
+
+   Si `TcpTestSucceeded : False` → firewall bloqueando o OBS sin WebSocket habilitado.
+
+### Notas
+
+- El **auto-launch de OBS local** se salta automáticamente cuando el Host apunta a otra máquina (no tiene sentido lanzar un OBS local si esperamos conectarnos a uno remoto).
+- La opción "Abrir OBS automáticamente si no está corriendo" puede quedar activa aunque uses OBS remoto — sólo aplica al equipo local.
+- El watchdog reconecta con timeout de 3s por intento, así que caídas del OBS remoto se detectan y reintentan sin colgar la UI.
 
 ## ▶️ Ejecución
 
