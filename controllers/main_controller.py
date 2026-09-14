@@ -207,6 +207,8 @@ class MainController:
         self.countdown_controller.refresh_from_obs()
         # Auto-aplicar canales habilitados a OBS (Fase 1e)
         self._auto_apply_canales()
+        # Arrancar watchdog de encoding_lag (Fase 2f)
+        self._start_lag_watchdog()
 
     def _sync_recording_state(self):
         status = self.obs_client.get_recording_status()
@@ -232,6 +234,8 @@ class MainController:
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
         self.main_window.set_connection_ui(False)
         self.main_window.clear_canvas_size()
+        # Detener el watchdog de lag (Fase 2f) — sin OBS no hay stats.
+        self._stop_lag_watchdog()
         # El botón Transmitir de Canal Principal se deshabilita hasta reconectar.
         if hasattr(self, "produccion_view") and self.produccion_view is not None:
             self.produccion_view.set_transmit_principal_enabled(False)
@@ -263,6 +267,8 @@ class MainController:
         # Re-aplicar canales habilitados — OBS pudo haber reiniciado y
         # perdido las escenas contenedoras (Fase 1e).
         self._auto_apply_canales()
+        # Reiniciar watchdog de encoding_lag (Fase 2f) tras reconexión.
+        self._start_lag_watchdog()
         # Reanudar rotador si estaba activo antes de la caída
         if self._rotator_was_running:
             self._rotator_was_running = False
@@ -474,6 +480,52 @@ class MainController:
         )
         if answer == QMessageBox.StandardButton.Yes:
             self._launch_calibration_dialog()
+
+    # ------------------------------------------------------------------
+    # Fase 2f — watchdog de encoding_lag runtime
+    # ------------------------------------------------------------------
+
+    def _start_lag_watchdog(self):
+        """Arranca el watchdog de encoding_lag si aún no está corriendo.
+
+        Requiere conexión OBS activa — el stats_provider llama a
+        get_stats() vía el facade.
+        """
+        try:
+            from core.encoding_lag_watchdog import EncodingLagWatchdog
+            from core.calibration_facade import RealObsFacade
+        except Exception as e:
+            log.debug("Fase 2f no disponible: %s", e)
+            return
+        # Reciclar instancia si ya existe: la creamos una sola vez y
+        # sólo la arrancamos/detenemos. Así el cooldown se preserva
+        # entre reconexiones.
+        if not hasattr(self, "_lag_watchdog") or self._lag_watchdog is None:
+            facade = RealObsFacade(self.obs_client)
+            self._lag_watchdog = EncodingLagWatchdog(
+                stats_provider=facade.get_output_frame_stats,
+                parent=self.main_window,
+            )
+            self._lag_watchdog.lag_alert.connect(self._on_lag_alert)
+        if not self._lag_watchdog.is_running():
+            self._lag_watchdog.start()
+
+    def _stop_lag_watchdog(self):
+        """Detiene el watchdog si estaba corriendo."""
+        wd = getattr(self, "_lag_watchdog", None)
+        if wd is not None and wd.is_running():
+            wd.stop()
+
+    def _on_lag_alert(self, pct: int):
+        """Handler del signal lag_alert: muestra advertencia non-modal."""
+        log.warning("Watchdog: encoding lag alto sostenido %d%%", pct)
+        try:
+            self.main_window.statusBar().showMessage(
+                f"⚠ Encoding lag {pct}% — considere bajar bitrate o "
+                f"deshabilitar algún canal", 15000,
+            )
+        except Exception:
+            pass
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
@@ -753,6 +805,10 @@ class MainController:
             self.watchdog.wait(2000)
         except Exception as e:
             log.warning("Error deteniendo watchdog: %s", e)
+        try:
+            self._stop_lag_watchdog()
+        except Exception as e:
+            log.warning("Error deteniendo lag watchdog: %s", e)
         try:
             self.canal_controller.shutdown_keeping_filters()
         except Exception as e:
