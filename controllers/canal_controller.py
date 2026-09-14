@@ -604,6 +604,17 @@ class CanalController(QObject):
         active = None
         if 0 <= state.active_index < len(state.playlist):
             active = state.playlist[state.active_index].item_id
+        # Segundos restantes hasta el próximo _advance:
+        # - Si el rotador está pausado, `state.remaining_ms` guarda lo que
+        #   quedaba al pausar (ver pause_rotator).
+        # - Si está corriendo, se lee del propio QTimer singleShot.
+        if state.is_paused:
+            remaining_ms = int(state.remaining_ms)
+        elif state.timer is not None and state.timer.isActive():
+            r = state.timer.remainingTime()
+            remaining_ms = int(r) if r > 0 else 0
+        else:
+            remaining_ms = 0
         return {
             "canal_id": canal_id,
             "applied": True,
@@ -617,6 +628,7 @@ class CanalController(QObject):
             ),
             "is_paused": state.is_paused,
             "placeholder_visible": state.placeholder_visible,
+            "remaining_ms": remaining_ms,
         }
 
     # Método interno expuesto para tests headless: fuerza un tick del rotador.
