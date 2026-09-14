@@ -47,6 +47,12 @@ def build_settings(canal: dict[str, Any]) -> dict[str, Any]:
             encoder, _KNOWN_ENCODERS,
         )
 
+    # Preset explícito por canal (Opción B, Fase 2). Si el canal no lo trae
+    # (DBs viejas antes de la migración de output_*), asume 1080p30 estándar.
+    width = int(canal.get("output_width") or 1920)
+    height = int(canal.get("output_height") or 1080)
+    fps = int(canal.get("output_fps") or 30)
+
     settings: dict[str, Any] = {
         # Regla firme: streaming va SIEMPRE por stream_mode. Ver Fase 1 memory.
         "stream_mode": 1,
@@ -56,6 +62,13 @@ def build_settings(canal: dict[str, Any]) -> dict[str, Any]:
         "bitrate": int(canal.get("bitrate_kbps", 2500)),
         "rate_control": "CBR",
         "scale_type": 3,
+        # Resolución y fps explícitos — antes de esto el plugin heredaba
+        # del canvas de OBS y los canales quedaban atados a 1920x1080. Con
+        # estos settings cada canal puede tener su propio preset.
+        "output_width": width,
+        "output_height": height,
+        "output_fps_num": fps,
+        "output_fps_den": 1,
         # Streaming UDP requiere keyframes frecuentes: un reproductor
         # recién conectado necesita un keyframe para arrancar el decode.
         # Con el default de x264 (~250 frames), a 60fps son ~4s y VLC

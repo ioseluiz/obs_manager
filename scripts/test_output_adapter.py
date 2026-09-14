@@ -70,8 +70,23 @@ def run_unit_tests() -> None:
     _check(s["profile"] == "high", "profile = high (default OBS streaming)")
     _check(s["tune"] == "zerolatency", "tune = zerolatency (evita lookahead del encoder)")
     _check(s["preset"] == "veryfast", "preset = veryfast (default streaming OBS)")
+    # Preset por canal (Opción B, Fase 2 full)
+    _check(s["output_width"] == 1920, "output_width default = 1920")
+    _check(s["output_height"] == 1080, "output_height default = 1080")
+    _check(s["output_fps_num"] == 30, "output_fps_num default = 30")
+    _check(s["output_fps_den"] == 1, "output_fps_den fijo = 1")
     _check("record_mode" not in s, "NO incluye record_mode (regla firme Fase 1)")
     _check("path" not in s, "NO incluye path (regla firme Fase 1)")
+
+    print("\n[Unit — canal con preset 720p60]")
+    canal_720p60 = dict(canal)
+    canal_720p60["output_width"] = 1280
+    canal_720p60["output_height"] = 720
+    canal_720p60["output_fps"] = 60
+    s60 = build_settings(canal_720p60)
+    _check(s60["output_width"] == 1280, "720p60 width=1280 propagado")
+    _check(s60["output_height"] == 720, "720p60 height=720 propagado")
+    _check(s60["output_fps_num"] == 60, "720p60 fps_num=60 propagado")
 
     print("\n[Unit — build_settings con audio_track > 0]")
     canal["audio_track"] = 2

@@ -18,7 +18,8 @@ from core.database import get_connection
 
 _CANAL_COLUMNS = (
     "id, nombre, url_destino, encoder, bitrate_kbps, habilitado, "
-    "audio_track, orden, descripcion, creado_en, modificado_en"
+    "audio_track, orden, descripcion, creado_en, modificado_en, "
+    "output_width, output_height, output_fps"
 )
 
 _ITEM_COLUMNS = (
@@ -39,6 +40,9 @@ def _canal_row_to_dict(r) -> dict[str, Any]:
         "descripcion": r[8],
         "creado_en": r[9],
         "modificado_en": r[10],
+        "output_width": int(r[11]) if r[11] is not None else 1920,
+        "output_height": int(r[12]) if r[12] is not None else 1080,
+        "output_fps": int(r[13]) if r[13] is not None else 30,
     }
 
 
@@ -97,7 +101,9 @@ class CanalModel:
 
     def add_canal(self, nombre: str, url_destino: str, encoder: str = "x264",
                   bitrate_kbps: int = 2500, habilitado: bool = True,
-                  audio_track: int = 0, descripcion: str | None = None) -> int:
+                  audio_track: int = 0, descripcion: str | None = None,
+                  output_width: int = 1920, output_height: int = 1080,
+                  output_fps: int = 30) -> int:
         conn = get_connection()
         try:
             cursor = conn.cursor()
@@ -106,12 +112,14 @@ class CanalModel:
             cursor.execute(
                 "INSERT INTO canales "
                 "(nombre, url_destino, encoder, bitrate_kbps, habilitado, "
-                "audio_track, orden, descripcion) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "audio_track, orden, descripcion, output_width, "
+                "output_height, output_fps) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     nombre, url_destino, encoder, int(bitrate_kbps),
                     1 if habilitado else 0, int(audio_track), int(next_order),
-                    descripcion,
+                    descripcion, int(output_width), int(output_height),
+                    int(output_fps),
                 ),
             )
             conn.commit()
@@ -121,7 +129,9 @@ class CanalModel:
 
     def update_canal(self, canal_id: int, nombre: str, url_destino: str,
                      encoder: str, bitrate_kbps: int, habilitado: bool,
-                     audio_track: int = 0, descripcion: str | None = None) -> None:
+                     audio_track: int = 0, descripcion: str | None = None,
+                     output_width: int = 1920, output_height: int = 1080,
+                     output_fps: int = 30) -> None:
         conn = get_connection()
         try:
             cursor = conn.cursor()
@@ -129,11 +139,13 @@ class CanalModel:
                 "UPDATE canales SET "
                 "nombre = ?, url_destino = ?, encoder = ?, bitrate_kbps = ?, "
                 "habilitado = ?, audio_track = ?, descripcion = ?, "
+                "output_width = ?, output_height = ?, output_fps = ?, "
                 "modificado_en = CURRENT_TIMESTAMP "
                 "WHERE id = ?",
                 (
                     nombre, url_destino, encoder, int(bitrate_kbps),
                     1 if habilitado else 0, int(audio_track), descripcion,
+                    int(output_width), int(output_height), int(output_fps),
                     canal_id,
                 ),
             )
@@ -200,6 +212,9 @@ class CanalModel:
             habilitado=False,  # safety: arranca apagado
             audio_track=int(origen["audio_track"]),
             descripcion=origen["descripcion"],
+            output_width=int(origen.get("output_width") or 1920),
+            output_height=int(origen.get("output_height") or 1080),
+            output_fps=int(origen.get("output_fps") or 30),
         )
         # Copiar items (preservando duracion_override_seg y orden implícito)
         for it in self.get_items(canal_id):
