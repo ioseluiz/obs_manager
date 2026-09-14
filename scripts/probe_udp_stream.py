@@ -55,6 +55,17 @@ def main():
     total_bytes = len(buffer)
     elapsed = time.time() - start
 
+    # Guardar captura a archivo .ts para reproducción posterior con VLC.
+    # Si el .ts se ve bien como archivo local, el problema del "VLC negro"
+    # en modo UDP es de red / detección de container, no del stream mismo.
+    if total_bytes > 0:
+        import pathlib
+        out_path = pathlib.Path(f"capture_udp_{port}.ts").resolve()
+        out_path.write_bytes(bytes(buffer))
+        print(f"  💾 Captura guardada en: {out_path}")
+        print(f"     Abrir con VLC: doble click sobre el archivo, o")
+        print(f"     'vlc \"{out_path}\"' desde terminal.\n")
+
     print("=" * 70)
     print(f"RESULTADO — {elapsed:.1f}s escuchados")
     print("=" * 70)
