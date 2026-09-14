@@ -19,6 +19,10 @@ from models.countdown_model import CountdownModel
 from views.countdown_view import CountdownView
 from controllers.countdown_controller import CountdownController
 
+from models.canal_model import CanalModel
+from views.canal_view import CanalView
+from controllers.canal_controller import CanalController
+
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
 
 
@@ -73,6 +77,16 @@ class MainController:
         self.countdown_view = CountdownView()
         self.countdown_controller = CountdownController(self.countdown_view, self.countdown_model, self.obs_client)
         self.main_window.tabs.addTab(self.countdown_view, "Contadores")
+
+        # 3.4 Iniciar Módulo de Canales Multi-Salida (Fase 1)
+        self.canal_model = CanalModel()
+        self.canal_controller = CanalController(
+            self.canal_model, self.scene_model, self.obs_client,
+        )
+        self.canal_view = CanalView(
+            self.canal_model, self.scene_model, self.canal_controller,
+        )
+        self.main_window.tabs.addTab(self.canal_view, "Canales Multi-Salida")
 
         # 3.5 Pestaña de Logs
         self.logs_view = LogsView()
