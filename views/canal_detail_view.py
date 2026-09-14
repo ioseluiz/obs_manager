@@ -491,8 +491,12 @@ class CanalDetailView(QWidget):
             creation_flags = 0
             if sys.platform == "win32":
                 creation_flags = subprocess.CREATE_NEW_CONSOLE
+            # Pasar el nombre del canal como 2do argumento — el script lo
+            # usa como -window_title para que múltiples previews sean
+            # distinguibles en la barra de tareas.
             subprocess.Popen(
-                [sys.executable, str(script), str(port)],
+                [sys.executable, str(script), str(port),
+                 str(canal.get("nombre") or f"canal :{port}")],
                 creationflags=creation_flags,
             )
         except Exception as e:
