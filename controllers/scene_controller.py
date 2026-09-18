@@ -1025,21 +1025,35 @@ class SceneController:
         Se llama al cerrar la app (shutdown limpio) o al desconectar
         manualmente. El script Lua toma este handoff y retoma la
         rotación exactamente desde donde la app la dejó.
+
+        Si el rotador nunca se inició (`active_scene_name` vacío),
+        publicamos la config SIN handoff — el script arranca desde el
+        primer item cuando el heartbeat expire.
         """
         if self.autopilot is None or not self.obs_client.client:
             return False
-        handoff = {
-            "active_scene": self.active_scene_name or "",
-            "seconds_remaining": int(self.time_left or 0),
-        }
         playlist = self._build_autopilot_playlist()
         if not playlist:
             log.debug("No hay playlist para handoff — se omite")
             return False
+
+        active = (self.active_scene_name or "").strip()
+        remaining = int(self.time_left or 0)
+        handoff = None
+        if active and remaining > 0:
+            handoff = {"active_scene": active, "seconds_remaining": remaining}
+
         try:
             self.autopilot.publish_config(playlist, handoff=handoff)
-            log.info("Handoff enviado al Autopilot: escena='%s', %ds restantes",
-                     handoff["active_scene"], handoff["seconds_remaining"])
+            if handoff:
+                log.info("Handoff enviado al Autopilot: escena='%s', %ds restantes",
+                         active, remaining)
+            else:
+                log.info(
+                    "Cierre sin handoff (rotador no iniciado). "
+                    "El Autopilot arrancará desde el primer item cuando "
+                    "expire el heartbeat."
+                )
             return True
         except Exception as e:
             log.warning("No se pudo publicar handoff al Autopilot: %s", e)
