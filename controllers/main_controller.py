@@ -185,6 +185,10 @@ class MainController:
         self._sync_recording_state()
         # Poblar combos del módulo de contadores con las escenas / text sources de OBS
         self.countdown_controller.refresh_from_obs()
+        # Fase AUT-4: sincronizar con el Autopilot si estaba controlando la
+        # rotación mientras la app estaba cerrada, y publicar la playlist
+        # actual para que el script tenga config al día.
+        self._sync_and_publish_autopilot()
 
     def _sync_recording_state(self):
         status = self.obs_client.get_recording_status()
@@ -231,6 +235,20 @@ class MainController:
             self._rotator_was_running = False
             self.scene_controller.rotate_to_next_scene()
             log.info("Rotador reanudado tras reconexión.")
+        # Fase AUT-4: sincronizar con el Autopilot tras reconexión.
+        self._sync_and_publish_autopilot()
+
+    def _sync_and_publish_autopilot(self):
+        """Sincroniza el rotador con el estado del Autopilot y publica config.
+
+        Se llama al conectar y reconectar OBS. Silencioso si el script no
+        está instalado.
+        """
+        try:
+            self.scene_controller.sync_from_autopilot()
+            self.scene_controller.sync_playlist_to_autopilot()
+        except Exception as e:
+            log.debug("Sync/publish autopilot fallo: %s", e)
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
@@ -492,6 +510,18 @@ class MainController:
 
     def shutdown(self):
         """Detiene threads antes de cerrar la app."""
+        # Fase AUT-4: entregar control al Autopilot antes de cerrar. El
+        # script Lua toma el handoff y sigue rotando desde donde la app
+        # dejó. Silencioso si el script no está instalado.
+        try:
+            self.scene_controller.publish_handoff_to_autopilot()
+        except Exception as e:
+            log.warning("Handoff a Autopilot falló en shutdown: %s", e)
+        # Detener heartbeat local para no colgar el cierre.
+        try:
+            self.scene_controller.autopilot_heartbeat_timer.stop()
+        except Exception:
+            pass
         try:
             self._record_timer.stop()
         except Exception as e:
