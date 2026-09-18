@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.8.1 — Fix del wizard de Autopilot en la app empaquetada (2026-09-18)
+
+Hotfix del wizard "Instalar Autopilot en OBS". En la app empaquetada con
+PyInstaller >= 6.0, el archivo `autopilot.lua` quedaba en la carpeta
+`_internal/` junto al `.exe` pero `core.autopilot_paths.bundle_root()`
+buscaba junto al `.exe` directamente. Al pulsar "Guardar autopilot.lua"
+en el wizard aparecía un error de "archivo no encontrado".
+
+### Fix
+
+- `core/autopilot_paths.py`: `bundle_root()` ahora usa `sys._MEIPASS` que
+  PyInstaller expone específicamente como raíz de datas empaquetados.
+  Fallback defensivo al `<exe>.parent` si `_MEIPASS` no está definido.
+- `autopilot_lua_path()` prueba múltiples ubicaciones (bundle_root,
+  `<exe>/_internal/`, `<exe>/`) — cubre variantes de PyInstaller.
+- `views/autopilot_install_dialog._export_to`: mensajes de error más
+  informativos con la ubicación intentada + instrucción para el user.
+
+No hay cambios de funcionalidad — quien ya haya instalado el script
+Lua en su OBS sigue funcionando idéntico. Este release sólo corrige la
+capacidad de re-exportarlo desde la app empaquetada.
+
+**Recomendado para todos los usuarios de v1.8.0** que aún no hayan
+completado el wizard de instalación del Autopilot.
+
+---
+
 ## v1.8.0 — Autopilot: rotación 24/7 (2026-09-18)
 
 **Objetivo del release**: resolver el problema reportado por operadores donde,

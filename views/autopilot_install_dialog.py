@@ -395,11 +395,27 @@ class AutopilotInstallDialog(QDialog):
     def _export_to(self, target: Path) -> None:
         try:
             source = autopilot_lua_path()
+        except FileNotFoundError as e:
+            log.error("autopilot.lua no encontrado: %s", e)
+            QMessageBox.critical(
+                self, "Guardar",
+                "No se pudo encontrar autopilot.lua dentro de la instalación "
+                "de la app.\n\nEsto indica un problema con el instalador. "
+                "Reinstalar la última versión debería resolverlo. "
+                "Si el problema persiste, contactar soporte.\n\n"
+                f"Detalle técnico: {e}",
+            )
+            return
+        try:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
         except Exception as e:
+            log.error("Error copiando autopilot.lua a %s: %s", target, e)
             QMessageBox.critical(
-                self, "Guardar", f"No se pudo guardar el archivo:\n{e}"
+                self, "Guardar",
+                f"No se pudo escribir el archivo en:\n{target}\n\n"
+                f"Verificá que tenés permisos de escritura en esa carpeta.\n\n"
+                f"Detalle técnico: {e}",
             )
             return
         self._exported_path = target
@@ -409,7 +425,7 @@ class AutopilotInstallDialog(QDialog):
         )
         self.lbl_export_result.setVisible(True)
         self.btn_next.setEnabled(True)
-        log.info("autopilot.lua exportado a %s", target)
+        log.info("autopilot.lua exportado a %s (desde %s)", target, source)
 
     def _verify(self):
         try:
