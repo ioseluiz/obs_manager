@@ -199,6 +199,39 @@ def test_no_publish_if_playlist_empty():
     _check(ok is False, "sin playlist no se publica handoff")
 
 
+def test_publish_without_active_scene_omits_handoff():
+    """Al cerrar la app sin haber iniciado el rotador, active_scene_name
+    está vacío. En ese caso la config se publica sin bloque handoff — el
+    script arranca desde el primer item cuando el heartbeat expire."""
+    print("\n[publish_handoff sin active_scene NO incluye handoff]")
+    from core.autopilot_client import CONFIG_SOURCE
+    fake = FakeObsClient({CONFIG_SOURCE: ""})
+    sc = MinimalSceneController(fake)
+    sc.scenes_list = [
+        {"id": 1, "name": "A", "duration": 10, "active_days": 127},
+    ]
+    sc.active_scene_name = ""  # rotador nunca inició
+    sc.time_left = 0
+
+    ok = sc.publish_handoff_to_autopilot()
+    _check(ok is True, "publica igual, aunque sin handoff")
+
+    raw = fake.client._sources[CONFIG_SOURCE]
+    data = json.loads(raw)
+    _check("handoff" not in data,
+           "config publicada NO incluye bloque handoff")
+    _check(len(data["playlist"]) == 1, "playlist sí se publica")
+
+    # Mismo test con seconds_remaining=0 pero active_scene definida
+    sc.active_scene_name = "A"
+    sc.time_left = 0
+    fake.client._sources[CONFIG_SOURCE] = ""
+    ok = sc.publish_handoff_to_autopilot()
+    data = json.loads(fake.client._sources[CONFIG_SOURCE])
+    _check("handoff" not in data,
+           "active_scene definida pero remaining=0 → NO incluye handoff")
+
+
 def main():
     test_build_playlist()
     test_sync_publishes_to_autopilot()
@@ -207,6 +240,7 @@ def main():
     test_sync_from_autopilot_standby()
     test_sync_silent_if_not_installed()
     test_no_publish_if_playlist_empty()
+    test_publish_without_active_scene_omits_handoff()
     print("\nTODOS LOS CHECKS PASARON")
 
 

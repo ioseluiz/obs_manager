@@ -54,8 +54,14 @@ local active_index = 0             -- 0 = ninguno; 1-indexed en Lua
 local seconds_remaining = 0
 local last_rotation_at = ""
 local last_config_version = 0
-local last_heartbeat_epoch = 0     -- os.time() del último heartbeat de la app
+local last_heartbeat_epoch = 0     -- os.time() del último heartbeat FRESCO recibido
+local last_heartbeat_str = ""      -- valor del app_heartbeat_at leído por última vez
 local mode = "standby"             -- "standby" | "active"
+
+-- Contador de ticks para emitir un log "sigo vivo" cada minuto (60 ticks
+-- de 1s). Sirve para confirmar en el log de OBS que los timers no se
+-- congelaron tras un reload.
+local tick_count = 0
 
 -- Referencias vivas a los text sources del buzón. Cuando obs_source_create
 -- devuelve un source, viene con refcount=1. Si soltamos esa ref y el source
@@ -270,10 +276,14 @@ local function ingest_config()
 
     local version = obs.obs_data_get_int(data, "version")
 
-    -- Heartbeat: cualquier config con timestamp fresco marca a la app como viva
+    -- Heartbeat: solo marcamos como fresco si el valor de app_heartbeat_at
+    -- CAMBIÓ desde la última lectura. Si el string es el mismo (la app ya
+    -- no está escribiendo), no refrescamos — así el timeout puede vencer
+    -- y el script pasa a mode=active.
     local heartbeat_str = obs.obs_data_get_string(data, "app_heartbeat_at") or ""
-    if heartbeat_str ~= "" then
+    if heartbeat_str ~= "" and heartbeat_str ~= last_heartbeat_str then
         last_heartbeat_epoch = os.time()
+        last_heartbeat_str = heartbeat_str
     end
 
     -- Solo re-cargar playlist si version subió
@@ -359,6 +369,16 @@ local function tick_rotation()
     end
 
     publish_state()
+
+    -- Heartbeat de log cada 60s — confirma que los timers no se
+    -- congelaron. Formato compacto para no spamear.
+    tick_count = tick_count + 1
+    if tick_count % 60 == 0 then
+        log_info(string.format(
+            "vivo: mode=%s, playlist=%d, active_idx=%d, last_config_v=%d",
+            mode, #playlist, active_index, last_config_version
+        ))
+    end
 end
 
 -- ==========================================================================
@@ -377,6 +397,15 @@ end
 
 function script_load(settings)
     log_info("cargando v" .. SCRIPT_VERSION)
+    -- Reset defensivo: si el script está siendo recargado, remover
+    -- timers zombie del load anterior antes de registrar los nuevos.
+    -- Sin esto, después de varios reloads podríamos tener múltiples
+    -- callbacks de tick_config y tick_rotation en paralelo (o peor,
+    -- referencias a funciones antiguas que ya no existen).
+    obs.timer_remove(tick_config)
+    obs.timer_remove(tick_rotation)
+    tick_count = 0
+
     -- Crear (o adoptar) los text sources del buzón, guardando ref viva.
     -- Sin la ref viva OBS los destruye porque no están en ninguna scene.
     config_source_ref = ensure_text_source(CONFIG_SOURCE, "")
@@ -385,7 +414,7 @@ function script_load(settings)
         "{\"script_version\":\"" .. SCRIPT_VERSION .. "\",\"mode\":\"standby\"}"
     )
 
-    -- Registrar timers
+    -- Registrar timers frescos
     obs.timer_add(tick_config, TICK_CONFIG_MS)
     obs.timer_add(tick_rotation, TICK_ROTATION_MS)
     log_info("timers armados; a la espera de config de la app")
