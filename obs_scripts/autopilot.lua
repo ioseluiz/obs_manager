@@ -57,6 +57,14 @@ local last_config_version = 0
 local last_heartbeat_epoch = 0     -- os.time() del último heartbeat de la app
 local mode = "standby"             -- "standby" | "active"
 
+-- Referencias vivas a los text sources del buzón. Cuando obs_source_create
+-- devuelve un source, viene con refcount=1. Si soltamos esa ref y el source
+-- no está en ninguna scene, OBS lo garbage-collectea de inmediato. Por eso
+-- las guardamos en variables globales del script (con refcount>=1) durante
+-- toda la vida del script, y las liberamos sólo en script_unload().
+local config_source_ref = nil
+local state_source_ref = nil
+
 -- ==========================================================================
 -- Utilidades
 -- ==========================================================================
@@ -120,46 +128,58 @@ end
 -- Lectura / escritura de text sources (los "buzones" con la app)
 -- ==========================================================================
 
--- Lee el texto del text source `name`. Devuelve "" si no existe todavía.
-local function read_text_source(name)
-    local source = obs.obs_get_source_by_name(name)
+-- Crea un text source suelto (no adosado a ninguna scene) y devuelve la
+-- referencia inicial (con refcount=1). Preferir text_gdiplus_v3 (OBS 30+);
+-- fallback a v2 en versiones anteriores. El caller debe conservar la ref
+-- viva mientras necesite que el source exista — si la libera y el source
+-- no está en ninguna scene, OBS lo destruye de inmediato.
+local function create_text_source(name, initial_text)
+    local settings = obs.obs_data_create()
+    obs.obs_data_set_string(settings, "text", initial_text or "")
+    local source = obs.obs_source_create("text_gdiplus_v3", name, settings, nil)
+    if source == nil then
+        source = obs.obs_source_create("text_gdiplus_v2", name, settings, nil)
+    end
+    obs.obs_data_release(settings)
+    if source == nil then
+        log_warn("no se pudo crear text source: " .. name)
+    else
+        log_info("creado text source: " .. name)
+    end
+    return source
+end
+
+-- Asegura que exista un text source `name`. Devuelve la ref viva (que hay
+-- que guardar en una variable global; en unload se libera). Si el source
+-- ya existía (por ejemplo tras reload del script), aumenta el refcount
+-- via get_source_by_name para tomar ownership de una ref propia.
+local function ensure_text_source(name, initial_text)
+    local existing = obs.obs_get_source_by_name(name)
+    if existing ~= nil then
+        -- La ref que devuelve get_source_by_name ya es "nuestra".
+        return existing
+    end
+    return create_text_source(name, initial_text)
+end
+
+-- Lee el texto del text source vivo `source` (referencia guardada). No
+-- suelta la ref — es propiedad del caller.
+local function read_source_text(source)
     if source == nil then return "" end
     local settings = obs.obs_source_get_settings(source)
     local text = obs.obs_data_get_string(settings, "text") or ""
     obs.obs_data_release(settings)
-    obs.obs_source_release(source)
     return text
 end
 
--- Escribe `text` en el text source `name`. Si el source no existe, lo crea.
--- El source queda "suelto" (no en ninguna scene) — solo sirve como buzón.
-local function write_text_source(name, text)
-    local source = obs.obs_get_source_by_name(name)
-    if source == nil then
-        -- Crear el text source. Preferir text_gdiplus_v3 (OBS 30+);
-        -- fallback a v2 en versiones anteriores.
-        local settings = obs.obs_data_create()
-        obs.obs_data_set_string(settings, "text", text or "")
-        source = obs.obs_source_create("text_gdiplus_v3", name, settings, nil)
-        obs.obs_data_release(settings)
-        if source == nil then
-            settings = obs.obs_data_create()
-            obs.obs_data_set_string(settings, "text", text or "")
-            source = obs.obs_source_create("text_gdiplus_v2", name, settings, nil)
-            obs.obs_data_release(settings)
-        end
-        if source == nil then
-            log_warn("no se pudo crear text source: " .. name)
-            return
-        end
-        log_info("creado text source: " .. name)
-    else
-        local settings = obs.obs_data_create()
-        obs.obs_data_set_string(settings, "text", text or "")
-        obs.obs_source_update(source, settings)
-        obs.obs_data_release(settings)
-    end
-    obs.obs_source_release(source)
+-- Escribe `text` en el text source vivo `source` (referencia guardada).
+-- No suelta la ref.
+local function write_source_text(source, text)
+    if source == nil then return end
+    local settings = obs.obs_data_create()
+    obs.obs_data_set_string(settings, "text", text or "")
+    obs.obs_source_update(source, settings)
+    obs.obs_data_release(settings)
 end
 
 -- ==========================================================================
@@ -235,7 +255,7 @@ local function publish_state()
     obs.obs_data_set_string(data, "updated_at", now_iso())
     local json = obs.obs_data_get_json(data)
     obs.obs_data_release(data)
-    write_text_source(STATE_SOURCE, json)
+    write_source_text(state_source_ref, json)
 end
 
 -- ==========================================================================
@@ -243,7 +263,7 @@ end
 -- ==========================================================================
 
 local function ingest_config()
-    local text = read_text_source(CONFIG_SOURCE)
+    local text = read_source_text(config_source_ref)
     if text == nil or text == "" then return end
     local data = obs.obs_data_create_from_json(text)
     if data == nil then return end
@@ -357,11 +377,13 @@ end
 
 function script_load(settings)
     log_info("cargando v" .. SCRIPT_VERSION)
-    -- Asegurar que los text sources del buzón existan.
-    if read_text_source(CONFIG_SOURCE) == "" then
-        write_text_source(CONFIG_SOURCE, "")
-    end
-    write_text_source(STATE_SOURCE, "{\"script_version\":\"" .. SCRIPT_VERSION .. "\",\"mode\":\"standby\"}")
+    -- Crear (o adoptar) los text sources del buzón, guardando ref viva.
+    -- Sin la ref viva OBS los destruye porque no están en ninguna scene.
+    config_source_ref = ensure_text_source(CONFIG_SOURCE, "")
+    state_source_ref = ensure_text_source(
+        STATE_SOURCE,
+        "{\"script_version\":\"" .. SCRIPT_VERSION .. "\",\"mode\":\"standby\"}"
+    )
 
     -- Registrar timers
     obs.timer_add(tick_config, TICK_CONFIG_MS)
@@ -372,5 +394,15 @@ end
 function script_unload()
     obs.timer_remove(tick_config)
     obs.timer_remove(tick_rotation)
+    -- Liberar las refs vivas — sin ellas OBS puede recolectar los text
+    -- sources (correcto: no queremos que sobrevivan al script).
+    if config_source_ref ~= nil then
+        obs.obs_source_release(config_source_ref)
+        config_source_ref = nil
+    end
+    if state_source_ref ~= nil then
+        obs.obs_source_release(state_source_ref)
+        state_source_ref = nil
+    end
     log_info("descargado")
 end
