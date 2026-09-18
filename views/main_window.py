@@ -126,6 +126,18 @@ class MainWindow(QMainWindow):
         self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
         self.statusBar().addPermanentWidget(self.lbl_connection_status)
 
+        # Label del Autopilot (AUT-5). Muestra si el script está instalado
+        # y si tiene control del rotador. Oculto hasta que la app se conecte
+        # a OBS y detecte el script.
+        self.lbl_autopilot = QLabel("")
+        self.lbl_autopilot.setStyleSheet("color: #6C757D; font-family: monospace;")
+        self.lbl_autopilot.setToolTip(
+            "Estado del script Autopilot en OBS. Cuando está activo, la "
+            "rotación sigue funcionando incluso si esta app se cierra."
+        )
+        self.lbl_autopilot.setVisible(False)
+        self.statusBar().addPermanentWidget(self.lbl_autopilot)
+
     def _build_acp_credit(self):
         # Logo a color sobre transparente — sin fondo propio, hereda el color
         # de la ventana para integrarse con la UI.
@@ -208,6 +220,57 @@ class MainWindow(QMainWindow):
     def clear_canvas_size(self):
         self.lbl_canvas.setText("🖥 Canvas: — ")
         self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
+
+    def set_autopilot_ui(self, installed: bool, mode: str = "",
+                         active_scene: str = "", seconds_remaining: int = 0,
+                         script_version: str | None = None) -> None:
+        """Actualiza el label del Autopilot en la status bar.
+
+        Estados:
+        - `installed=False`: label oculto (no distraer al operador con
+          info sobre algo que no está configurado).
+        - `installed=True, mode='standby'`: verde suave, "🎛 Autopilot listo".
+          El script está listo para tomar control si la app se cae.
+        - `installed=True, mode='active'`: naranja/rojo, indica que el
+          script está controlando la rotación (la app perdió el heartbeat).
+          Formato: "🚀 Autopilot activo · 'X' en Ns".
+        """
+        if not installed:
+            self.lbl_autopilot.setVisible(False)
+            self.lbl_autopilot.setText("")
+            self.lbl_autopilot.setToolTip(
+                "Autopilot no está instalado en OBS. Configuralo desde "
+                "Ajustes → Instalar Autopilot en OBS para que la rotación "
+                "siga funcionando cuando cierres esta app."
+            )
+            return
+
+        self.lbl_autopilot.setVisible(True)
+
+        if mode == "active":
+            scene_display = active_scene or "?"
+            if seconds_remaining > 0:
+                text = f"🚀 Autopilot activo · «{scene_display}» ({seconds_remaining}s) "
+            else:
+                text = f"🚀 Autopilot activo · «{scene_display}» "
+            self.lbl_autopilot.setText(text)
+            self.lbl_autopilot.setStyleSheet(
+                "color: #B02A37; font-weight: bold; font-family: monospace;"
+            )
+            self.lbl_autopilot.setToolTip(
+                "El script Autopilot está controlando la rotación "
+                "(esta app no le mandó heartbeat reciente)."
+            )
+        else:  # standby
+            v = f" v{script_version}" if script_version else ""
+            self.lbl_autopilot.setText(f"🎛 Autopilot listo{v} ")
+            self.lbl_autopilot.setStyleSheet(
+                "color: #198754; font-family: monospace;"
+            )
+            self.lbl_autopilot.setToolTip(
+                "Autopilot instalado y en modo standby. Si cerrás esta app, "
+                "el script toma control y mantiene la rotación."
+            )
 
     def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
         """Actualiza el estado visual del botón de transmisión y el timer."""

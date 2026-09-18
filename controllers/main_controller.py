@@ -88,6 +88,13 @@ class MainController:
         self._record_timer.setInterval(1000)
         self._record_timer.timeout.connect(self._poll_recording_status)
 
+        # Poll del estado del Autopilot (AUT-5). Cada 3s lee el state del
+        # script y actualiza el label de la status bar. Silencioso si el
+        # script no está instalado — el label se oculta.
+        self._autopilot_status_timer = QTimer()
+        self._autopilot_status_timer.setInterval(3000)
+        self._autopilot_status_timer.timeout.connect(self._refresh_autopilot_status)
+
         self._connect_signals()
 
     def _connect_signals(self):
@@ -207,6 +214,8 @@ class MainController:
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
         self.main_window.set_connection_ui(False)
         self.main_window.clear_canvas_size()
+        self.main_window.set_autopilot_ui(installed=False)
+        self._autopilot_status_timer.stop()
         # Detener el polling del timer local; el estado real se re-sincroniza al reconectar.
         self._record_timer.stop()
         # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
@@ -249,6 +258,41 @@ class MainController:
             self.scene_controller.sync_playlist_to_autopilot()
         except Exception as e:
             log.debug("Sync/publish autopilot fallo: %s", e)
+        # Arrancar el poll del label de status bar (AUT-5) tras conectar.
+        if not self._autopilot_status_timer.isActive():
+            self._autopilot_status_timer.start()
+        # Un refresh inmediato para no esperar 3s al primer tick.
+        self._refresh_autopilot_status()
+
+    def _refresh_autopilot_status(self):
+        """QTimer callback cada 3s — actualiza el label del Autopilot en la
+        status bar (AUT-5). Lee el state del script y traduce a UI."""
+        ap = getattr(self.scene_controller, "autopilot", None)
+        if ap is None or not self.obs_client.client:
+            self.main_window.set_autopilot_ui(installed=False)
+            return
+
+        try:
+            installed = ap.is_installed()
+        except Exception:
+            installed = False
+
+        if not installed:
+            self.main_window.set_autopilot_ui(installed=False)
+            return
+
+        try:
+            state = ap.read_state() or {}
+        except Exception:
+            state = {}
+
+        self.main_window.set_autopilot_ui(
+            installed=True,
+            mode=state.get("mode", "standby"),
+            active_scene=state.get("active_scene", ""),
+            seconds_remaining=int(state.get("seconds_remaining") or 0),
+            script_version=state.get("script_version"),
+        )
 
     def _on_connection_error(self, error_message):
         settings = self.settings_model.get_settings()
@@ -520,6 +564,10 @@ class MainController:
         # Detener heartbeat local para no colgar el cierre.
         try:
             self.scene_controller.autopilot_heartbeat_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._autopilot_status_timer.stop()
         except Exception:
             pass
         try:
