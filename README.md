@@ -121,6 +121,79 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 python main.py
 ```
 
+## 🚀 Autopilot — Rotación 24/7 (nuevo en v1.8.0)
+
+**Problema que resuelve**: si la app OBS Automation Manager está corriendo en una laptop y OBS en un servidor, cuando la laptop se apaga (fin del día, corte de energía, cierre accidental), OBS deja la última escena congelada y **la rotación se detiene**. Con Autopilot activo, la rotación **sigue funcionando en el servidor** aunque la app se cierre.
+
+### Cómo funciona
+
+Un pequeño script Lua (`autopilot.lua`) se instala **una sola vez** en el OBS del servidor. Mientras la app está corriendo, envía un *heartbeat* cada 5 segundos y el script se queda en standby. Si el heartbeat se corta más de 30 segundos, el script asume que la app cayó y **toma control de la rotación** por su cuenta usando la playlist que la app le entregó. Cuando la app vuelve, el heartbeat se restaura y el script cede control automáticamente.
+
+- No requiere conocimientos técnicos avanzados del operador.
+- No cambia el workflow habitual: sólo activa un modo "resistente a caídas".
+- Respeta programación horaria (días de la semana + rangos HH:MM, incluidos cruces por medianoche).
+- Cero configuración recurrente: la app se encarga de mantener el script sincronizado.
+
+### Instalación (una vez, requiere acceso al servidor)
+
+En la app: **⚙ Ajustes → 🚀 Instalar Autopilot en OBS**. Se abre un asistente en 6 pasos:
+
+1. **Bienvenida** — explicación del proceso.
+2. **Detectar** — chequea si ya está instalado.
+3. **Guardar el script** — botón "💾 Guardar en Descargas" copia `autopilot.lua` a tu laptop.
+4. **Copiar al servidor** — llevar el archivo por RDP / USB / email al servidor donde corre OBS.
+5. **Registrar en OBS del servidor**: menú **Herramientas → Scripts → +** → seleccionar `autopilot.lua`.
+6. **Verificar** — botón "✓ Verificar ahora" confirma que el script está corriendo.
+
+**Ubicaciones del script en el servidor:**
+
+| Tipo de OBS | Ubicación sugerida |
+|---|---|
+| OBS Portable | `<obs-portable>\scripts\autopilot.lua` (crear la carpeta si no existe) |
+| OBS instalado | `%APPDATA%\obs-studio\scripts\autopilot.lua` |
+
+En ambos casos, el archivo puede vivir en cualquier ruta accesible al usuario que ejecuta OBS — lo importante es que quede registrado desde `Herramientas → Scripts`.
+
+### Verificación desde la app
+
+Una vez instalado, en la barra de estado inferior de la app aparece:
+
+- **🎛 Autopilot listo v1.0.0** (verde) — script instalado, en standby. La app tiene control.
+- **🚀 Autopilot activo · «escena» (Ns)** (rojo) — script tomó control (la app se cerró o se cayó).
+
+Si el label no aparece, la app no detectó el script — revisar que esté cargado en OBS.
+
+### Verificación end-to-end
+
+1. Iniciar el rotador de escenas (▶ Iniciar rotación) y dejarlo unos segundos.
+2. Cerrar la app.
+3. Esperar ~30 segundos.
+4. **La rotación en OBS sigue** — el script está rotando por su cuenta.
+5. Reabrir la app — el script cede control en <5 segundos y la app retoma la rotación.
+
+En el log de OBS (Help → Log Files → View Current Log) se pueden auditar todas las transiciones:
+```
+[autopilot] handoff recibido: 'IMAGEN 1 prueba' con 8s restantes
+[autopilot] rotate → 'IMAGEN 1 prueba' (10s)
+[autopilot] rotate → 'escena prueba 3' (5s)
+```
+
+### Actualizar el script a versión nueva
+
+Cuando se libere una versión mayor del script:
+
+1. En la app: **⚙ Ajustes → ↻ Reinstalar / actualizar** para exportar el nuevo `.lua`.
+2. En el servidor: reemplazar el archivo y en OBS → **Herramientas → Scripts** → seleccionar el script → botón **↻** (Reload).
+
+O simplemente reiniciar OBS — el script se auto-carga desde la scene collection.
+
+### Troubleshooting
+
+- **El label del Autopilot dice "no detectado"**: el script no está corriendo. Verificar en OBS → Herramientas → Scripts que `autopilot.lua` está en la lista y que el panel derecho muestra su descripción.
+- **La rotación no arranca 30s después de cerrar la app**: verificar en el log de OBS que aparecen líneas `[autopilot] vivo: mode=...` cada minuto. Si dice `mode=standby` para siempre, algún cliente está enviando heartbeats — cerrar otros clientes conectados al OBS.
+- **La escena que arranca el Autopilot no es la que estaba mostrando la app**: normal la primera vez si la app se cerró sin iniciar el rotador manualmente. El Autopilot arranca desde el primer item de la playlist. Después del primer arranque manual, sí retoma la escena exacta.
+- **Modo Autopilot activo pero OBS no cambia de escena**: verificar que los nombres de las escenas en la playlist coincidan exactamente con los nombres en OBS. Line-endings extra, mayúsculas o espacios finales pueden hacer que `SetCurrentProgramScene` falle silenciosamente.
+
 ## 🔐 Sesiones de Dashboard (Power BI, sistemas con login)
 
 1. Crea una escena tipo **URL / Dashboard** con `☑ Mantener sesión activa` marcado.
