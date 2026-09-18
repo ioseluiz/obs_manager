@@ -5,7 +5,15 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('app_icon.ico', '.'), ('assets', 'assets')],
+    datas=[
+        ('app_icon.ico', '.'),
+        ('assets', 'assets'),
+        # obs_scripts/ contiene el autopilot.lua que el wizard exporta
+        # al servidor del cliente (AUT-3). Empaquetarlo junto al .exe
+        # permite que core.autopilot_paths lo localice sin depender del
+        # repo. En runtime: <bundle_root>/obs_scripts/autopilot.lua.
+        ('obs_scripts', 'obs_scripts'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
