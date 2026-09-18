@@ -17,7 +17,7 @@ class SceneController:
         self.obs_client = obs_client
         self.settings_model = settings_model
         self.calendar_controller = calendar_controller
-        
+
         self.scenes_list = []
         self.current_index = 0
         self.is_paused = False
@@ -25,7 +25,7 @@ class SceneController:
         # NUEVAS VARIABLES PARA EL CONTEO REGRESIVO
         self.time_left = 0
         self.active_scene_name = ""
-        
+
         self.timer = QTimer()
         # Ahora el timer llamará a la función de cuenta regresiva
         self.timer.timeout.connect(self.update_countdown)
@@ -47,6 +47,26 @@ class SceneController:
         self.preview_timer.setSingleShot(True)
         self.preview_timer.timeout.connect(self._capture_active_preview)
         self._pending_preview_scene_id = None
+
+        # === Autopilot (AUT-4) ===
+        # Cliente del script Lua remoto en OBS. Se usa para mantener la
+        # rotación viva cuando la app se cierra o la laptop se apaga.
+        # Import lazy para no fallar si el módulo no existe (compatibilidad
+        # con builds anteriores).
+        try:
+            from core.autopilot_client import AutopilotClient
+            self.autopilot = AutopilotClient(obs_client)
+        except Exception as e:
+            log.debug("Autopilot no disponible en SceneController: %s", e)
+            self.autopilot = None
+
+        # Heartbeat periódico al autopilot mientras la app está viva y
+        # conectada. Sin heartbeat por >30s, el script toma control por
+        # su cuenta. Con heartbeats frescos, se queda en standby.
+        self.autopilot_heartbeat_timer = QTimer()
+        self.autopilot_heartbeat_timer.setInterval(5000)  # 5s
+        self.autopilot_heartbeat_timer.timeout.connect(self._autopilot_heartbeat)
+        self.autopilot_heartbeat_timer.start()
 
         self._connect_signals()
         self.refresh_table()
@@ -267,6 +287,10 @@ class SceneController:
     def refresh_table(self):
         self.scenes_list = self.model.get_all_scenes()
         self.view.populate_table(self.scenes_list, self.thumbnail_cache)
+        # Fase AUT-4: cualquier cambio en la playlist se propaga al script
+        # remoto para que su config esté al día, listo para tomar control
+        # cuando la app se cierre. Silencioso si el script no está cargado.
+        self.sync_playlist_to_autopilot()
 
     def add_scene(self):
         dialog = SceneEditDialog(scene=None, parent=self.view,
@@ -926,6 +950,128 @@ class SceneController:
                 self.view.set_row_preview(scene["id"], pixmap)
                 updated += 1
         log.info("Previews actualizados: %d/%d escenas", updated, len(self.scenes_list))
+
+    # ==========================================================================
+    # Autopilot integration (AUT-4)
+    # ==========================================================================
+
+    def _build_autopilot_playlist(self) -> list[dict]:
+        """Convierte scenes_list a la forma que espera el protocolo Autopilot.
+
+        AutopilotClient hace la traducción de nombres viejos (nombre_escena,
+        duracion_segundos) al shape del protocolo, así que basta con pasar
+        los dicts de SceneModel tal cual, filtrando los que no tengan nombre.
+        """
+        result = []
+        for s in (self.scenes_list or []):
+            name = s.get("name") or s.get("nombre_escena") or ""
+            if not name:
+                continue
+            result.append({
+                "name": name,
+                "duration_seg": int(s.get("duration") or s.get("duracion_segundos") or 20),
+                "active_days": int(s.get("active_days") or 127),
+                "active_time_start": s.get("active_time_start") or "",
+                "active_time_end": s.get("active_time_end") or "",
+            })
+        return result
+
+    def sync_playlist_to_autopilot(self, handoff: dict | None = None) -> bool:
+        """Publica la playlist actual al Autopilot.
+
+        Se llama tras cambios en la BD (add/edit/delete/reorder) para que
+        el script tenga siempre la config al día, listo para tomar control
+        si la app se cierra. También al iniciar la app tras conectar OBS.
+
+        handoff: opcional. Si se pasa, incluye ese estado en el config —
+                 útil al cerrar la app (publish del punto exacto donde
+                 estaba el rotador).
+
+        Devuelve True si se publicó exitosamente, False si el autopilot
+        no está disponible o no está instalado (silencioso — no rompe).
+        """
+        if self.autopilot is None:
+            return False
+        if not self.obs_client.client:
+            return False
+        try:
+            playlist = self._build_autopilot_playlist()
+            self.autopilot.publish_config(playlist, handoff=handoff)
+            return True
+        except Exception as e:
+            # No pasa nada: si el script no está cargado, is_installed
+            # devuelve False y publish_config falla. Silenciamos y sigue
+            # todo el resto de la app funcionando.
+            log.debug("Sync a Autopilot no realizado: %s", e)
+            return False
+
+    def _autopilot_heartbeat(self) -> None:
+        """QTimer callback cada 5s — mantiene al script en standby.
+
+        Silencioso si el autopilot no está instalado o hay error de
+        comunicación. Sin heartbeat por >30s, el script asume que la
+        app está muerta y toma control.
+        """
+        if self.autopilot is None or not self.obs_client.client:
+            return
+        try:
+            self.autopilot.send_heartbeat()
+        except Exception as e:
+            log.debug("Heartbeat autopilot falló: %s", e)
+
+    def publish_handoff_to_autopilot(self) -> bool:
+        """Publica el estado actual del rotador como handoff.
+
+        Se llama al cerrar la app (shutdown limpio) o al desconectar
+        manualmente. El script Lua toma este handoff y retoma la
+        rotación exactamente desde donde la app la dejó.
+        """
+        if self.autopilot is None or not self.obs_client.client:
+            return False
+        handoff = {
+            "active_scene": self.active_scene_name or "",
+            "seconds_remaining": int(self.time_left or 0),
+        }
+        playlist = self._build_autopilot_playlist()
+        if not playlist:
+            log.debug("No hay playlist para handoff — se omite")
+            return False
+        try:
+            self.autopilot.publish_config(playlist, handoff=handoff)
+            log.info("Handoff enviado al Autopilot: escena='%s', %ds restantes",
+                     handoff["active_scene"], handoff["seconds_remaining"])
+            return True
+        except Exception as e:
+            log.warning("No se pudo publicar handoff al Autopilot: %s", e)
+            return False
+
+    def sync_from_autopilot(self) -> bool:
+        """Al reconectar la app, lee el estado del autopilot y sincroniza.
+
+        Si el script estaba rotando en modo `active` (porque la app
+        estaba cerrada), toma su punto actual y arranca el timer local
+        con ese estado. Devuelve True si se sincronizó.
+        """
+        if self.autopilot is None or not self.obs_client.client:
+            return False
+        try:
+            state = self.autopilot.read_state()
+        except Exception as e:
+            log.debug("read_state autopilot falló: %s", e)
+            return False
+        if state is None:
+            return False
+        mode = state.get("mode")
+        active = state.get("active_scene") or ""
+        remaining = int(state.get("seconds_remaining") or 0)
+        if mode == "active" and active and remaining > 0:
+            # El script estaba controlando la rotación. Continuamos desde ahí.
+            self.active_scene_name = active
+            self.time_left = remaining
+            log.info("Sincronizado desde Autopilot: escena='%s', %ds restantes",
+                     active, remaining)
+            return True
+        return False
 
     def _grab_pixmap(self, source_name, scene_name=None):
         """Toma screenshot vía OBS y devuelve QPixmap 80x45 o None.
