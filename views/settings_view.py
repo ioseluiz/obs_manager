@@ -1,3 +1,4 @@
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
                              QPushButton, QHBoxLayout, QCheckBox, QLabel,
                              QFileDialog, QMessageBox, QGroupBox)
@@ -6,10 +7,14 @@ from core import obs_launcher
 
 
 class SettingsDialog(QDialog):
+    # Emitida cuando el user hace click en "Instalar Autopilot" (AUT-3).
+    # El controller la escucha y lanza el wizard con el OBSClient real.
+    install_autopilot_requested = pyqtSignal()
+
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Conexión OBS")
-        self.setFixedSize(480, 360)
+        self.setFixedSize(480, 460)
 
         layout = QVBoxLayout(self)
 
@@ -54,6 +59,30 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(launch_group)
 
+        # --- Autopilot (AUT-3) ---
+        autopilot_group = QGroupBox("Autopilot — rotación 24/7")
+        autopilot_layout = QVBoxLayout(autopilot_group)
+
+        self.lbl_autopilot_status = QLabel(
+            "Instalá el Autopilot en OBS para que la rotación siga "
+            "funcionando aunque la app se cierre o la laptop se apague."
+        )
+        self.lbl_autopilot_status.setWordWrap(True)
+        self.lbl_autopilot_status.setStyleSheet("color: #495057;")
+        autopilot_layout.addWidget(self.lbl_autopilot_status)
+
+        ap_row = QHBoxLayout()
+        ap_row.addStretch(1)
+        self.btn_install_autopilot = QPushButton("🚀 Instalar Autopilot en OBS")
+        self.btn_install_autopilot.setToolTip(
+            "Abre un asistente paso a paso para instalar el Autopilot "
+            "en el servidor de OBS. Solo hay que hacerlo una vez."
+        )
+        ap_row.addWidget(self.btn_install_autopilot)
+        autopilot_layout.addLayout(ap_row)
+
+        layout.addWidget(autopilot_group)
+
         # --- Botones inferiores ---
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar y Conectar")
@@ -68,6 +97,9 @@ class SettingsDialog(QDialog):
         self.btn_save.clicked.connect(self.accept)
         self.btn_detect.clicked.connect(self._on_detect)
         self.btn_browse.clicked.connect(self._on_browse)
+        self.btn_install_autopilot.clicked.connect(
+            self.install_autopilot_requested.emit
+        )
 
     def _on_detect(self):
         path = obs_launcher.find_obs_executable()
@@ -87,6 +119,30 @@ class SettingsDialog(QDialog):
         )
         if path:
             self.obs_exe_input.setText(path)
+
+    def set_autopilot_status(self, installed: bool, version: str | None = None) -> None:
+        """Actualiza el label de estado del Autopilot en el dialog.
+
+        installed: True si el script está detectado en OBS.
+        version: número de versión reportado por el script (opcional).
+        """
+        if installed:
+            v = f" (v{version})" if version else ""
+            self.lbl_autopilot_status.setText(
+                f"✓ Autopilot instalado y corriendo en OBS{v}.\n"
+                "La rotación de escenas seguirá funcionando aunque cierres "
+                "esta app."
+            )
+            self.lbl_autopilot_status.setStyleSheet("color: #198754;")
+            self.btn_install_autopilot.setText("↻ Reinstalar / actualizar")
+        else:
+            self.lbl_autopilot_status.setText(
+                "⚠ Autopilot no detectado. Sin él, si cerrás la app o "
+                "apagás la laptop, la rotación se congela.\n"
+                "Instalalo una sola vez con el asistente."
+            )
+            self.lbl_autopilot_status.setStyleSheet("color: #FD7E14;")
+            self.btn_install_autopilot.setText("🚀 Instalar Autopilot en OBS")
 
     def get_inputs(self):
         return {

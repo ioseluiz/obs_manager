@@ -101,6 +101,12 @@ class MainController:
         current_settings = self.settings_model.get_settings()
         dialog = SettingsDialog(current_settings, self.main_window)
 
+        # Fase Autopilot (AUT-3): mostrar estado + habilitar botón de wizard
+        self._populate_autopilot_status(dialog)
+        dialog.install_autopilot_requested.connect(
+            lambda d=dialog: self._open_autopilot_wizard(d)
+        )
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
             self.settings_model.save_settings(
@@ -113,6 +119,41 @@ class MainController:
                 new_settings["obs_autolaunch"]
             )
             self.connect_to_obs()
+
+    def _populate_autopilot_status(self, dialog):
+        """Chequea si el script Autopilot está en OBS y actualiza el label."""
+        try:
+            from core.autopilot_client import AutopilotClient
+            ap = AutopilotClient(self.obs_client)
+            installed = ap.is_installed()
+            version = ap.script_version() if installed else None
+            dialog.set_autopilot_status(installed, version)
+        except Exception as e:
+            log.debug("No se pudo consultar estado Autopilot: %s", e)
+            dialog.set_autopilot_status(False)
+
+    def _open_autopilot_wizard(self, settings_dialog):
+        """Abre el wizard de instalación del Autopilot desde Settings."""
+        if not getattr(self.obs_client, "client", None):
+            QMessageBox.warning(
+                settings_dialog, "Autopilot",
+                "Conectate a OBS primero — el asistente necesita "
+                "verificar el estado del script."
+            )
+            return
+        try:
+            from views.autopilot_install_dialog import AutopilotInstallDialog
+        except Exception as e:
+            log.warning("No se pudo cargar AutopilotInstallDialog: %s", e)
+            QMessageBox.critical(
+                settings_dialog, "Autopilot",
+                f"Error cargando el asistente:\n{e}"
+            )
+            return
+        wizard = AutopilotInstallDialog(self.obs_client, parent=settings_dialog)
+        wizard.exec()
+        # Refrescar el estado en el settings dialog tras cerrar el wizard
+        self._populate_autopilot_status(settings_dialog)
 
     def connect_to_obs(self):
         self.main_window.statusBar().showMessage("Conectando a OBS...")
