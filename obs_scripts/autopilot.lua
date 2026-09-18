@@ -54,7 +54,8 @@ local active_index = 0             -- 0 = ninguno; 1-indexed en Lua
 local seconds_remaining = 0
 local last_rotation_at = ""
 local last_config_version = 0
-local last_heartbeat_epoch = 0     -- os.time() del último heartbeat de la app
+local last_heartbeat_epoch = 0     -- os.time() del último heartbeat FRESCO recibido
+local last_heartbeat_str = ""      -- valor del app_heartbeat_at leído por última vez
 local mode = "standby"             -- "standby" | "active"
 
 -- Contador de ticks para emitir un log "sigo vivo" cada minuto (60 ticks
@@ -275,10 +276,14 @@ local function ingest_config()
 
     local version = obs.obs_data_get_int(data, "version")
 
-    -- Heartbeat: cualquier config con timestamp fresco marca a la app como viva
+    -- Heartbeat: solo marcamos como fresco si el valor de app_heartbeat_at
+    -- CAMBIÓ desde la última lectura. Si el string es el mismo (la app ya
+    -- no está escribiendo), no refrescamos — así el timeout puede vencer
+    -- y el script pasa a mode=active.
     local heartbeat_str = obs.obs_data_get_string(data, "app_heartbeat_at") or ""
-    if heartbeat_str ~= "" then
+    if heartbeat_str ~= "" and heartbeat_str ~= last_heartbeat_str then
         last_heartbeat_epoch = os.time()
+        last_heartbeat_str = heartbeat_str
     end
 
     -- Solo re-cargar playlist si version subió
