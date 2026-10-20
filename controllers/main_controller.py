@@ -25,6 +25,7 @@ from controllers.canal_controller import CanalController
 
 from core.autopilot_client import AutopilotClientV2
 from controllers.autopilot_v2_controller import AutopilotV2Controller
+from views.autopilot_install_v2_dialog import AutopilotInstallV2Dialog
 
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
 
@@ -108,6 +109,11 @@ class MainController:
             self.canal_controller,
             scene_controller=self.scene_controller,
         )
+        # Timer de 3s para refrescar el label de status bar del Autopilot v2.
+        self._autopilot_v2_status_timer = QTimer()
+        self._autopilot_v2_status_timer.setInterval(3000)
+        self._autopilot_v2_status_timer.timeout.connect(
+            self._refresh_autopilot_v2_status)
 
         # 3.5 Pestaña de Logs
         self.logs_view = LogsView()
@@ -155,6 +161,9 @@ class MainController:
             log.debug("No se pudo poblar estado de calibración: %s", e)
         dialog.recalibrate_requested.connect(
             lambda d=dialog: self._on_recalibrate_requested(d)
+        )
+        dialog.install_autopilot_v2_requested.connect(
+            lambda d=dialog: self._on_install_autopilot_v2_requested(d)
         )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -240,6 +249,9 @@ class MainController:
             self.autopilot_v2.start()
         except Exception as e:
             log.warning("Autopilot v2 no arranco en connect: %s", e)
+        # Arrancar refresh del label del Autopilot v2 en el status bar.
+        self._refresh_autopilot_v2_status()
+        self._autopilot_v2_status_timer.start()
 
     def _sync_recording_state(self):
         status = self.obs_client.get_recording_status()
@@ -274,6 +286,9 @@ class MainController:
             self.autopilot_v2.stop()
         except Exception as e:
             log.debug("Autopilot v2 stop en caida fallo: %s", e)
+        # Pausar el refresh del label de status bar — ya no hay OBS que leer.
+        self._autopilot_v2_status_timer.stop()
+        self.main_window.set_autopilot_v2_ui(None)
         # El botón Transmitir de Canal Principal se deshabilita hasta reconectar.
         if hasattr(self, "produccion_view") and self.produccion_view is not None:
             self.produccion_view.set_transmit_principal_enabled(False)
@@ -321,11 +336,30 @@ class MainController:
             self.autopilot_v2.start()
         except Exception as e:
             log.warning("Autopilot v2 no arranco en reconexion: %s", e)
+        # Reanudar refresh del label de status bar.
+        self._refresh_autopilot_v2_status()
+        if not self._autopilot_v2_status_timer.isActive():
+            self._autopilot_v2_status_timer.start()
         # Reanudar rotador si estaba activo antes de la caída
         if self._rotator_was_running:
             self._rotator_was_running = False
             self.scene_controller.rotate_to_next_scene()
             log.info("Rotador reanudado tras reconexión.")
+
+    def _refresh_autopilot_v2_status(self):
+        """Fase F del port: lee el state del Lua y lo pinta en la status
+        bar. Silencioso ante fallos — una desconexion momentanea no debe
+        tirar el refresh."""
+        try:
+            if not self.autopilot_v2_client.is_installed():
+                self.main_window.set_autopilot_v2_ui(None)
+                return
+            state = self.autopilot_v2_client.read_state()
+        except Exception as e:
+            log.debug("Refresh Autopilot v2 status fallo: %s", e)
+            self.main_window.set_autopilot_v2_ui(None)
+            return
+        self.main_window.set_autopilot_v2_ui(state)
 
     def _sync_from_autopilot_v2(self):
         """Fase E del port de Autopilot v2.
@@ -492,6 +526,22 @@ class MainController:
             return
         entry = CapacityRepo().get(fp)
         dialog.set_calibration_status(entry)
+
+    def _on_install_autopilot_v2_requested(self, settings_dialog):
+        """Handler del boton 'Instalar / Verificar Autopilot v2' en
+        Settings. Abre el AutopilotInstallV2Dialog con el cliente actual.
+
+        No requiere OBS conectado: el export al disco funciona offline;
+        la verificacion si requiere conexion y el propio dialogo avisa
+        si no la hay.
+        """
+        dialog = AutopilotInstallV2Dialog(
+            self.autopilot_v2_client, parent=settings_dialog,
+        )
+        dialog.exec()
+        # Refrescar el label de status bar por si el usuario acabo de
+        # cargar el script o verifica estado nuevo.
+        self._refresh_autopilot_v2_status()
 
     def _on_recalibrate_requested(self, settings_dialog):
         """Handler del botón 'Re-calibrar' en Settings.
@@ -909,6 +959,11 @@ class MainController:
             self._stop_lag_watchdog()
         except Exception as e:
             log.warning("Error deteniendo lag watchdog: %s", e)
+        # Detener refresh del label de Autopilot v2 (Fase F).
+        try:
+            self._autopilot_v2_status_timer.stop()
+        except Exception as e:
+            log.debug("Stop autopilot v2 status timer fallo: %s", e)
         # Publicar handoff final al Lua v2 ANTES de parar el canal_controller
         # — asi el script retoma la rotacion con el active_index y
         # seconds_remaining que la app estaba manejando (Fase C).

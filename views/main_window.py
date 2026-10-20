@@ -113,6 +113,17 @@ class MainWindow(QMainWindow):
         self.lbl_canvas.setToolTip("Resolución del canvas de OBS (base_width × base_height)")
         self.statusBar().addPermanentWidget(self.lbl_canvas)
 
+        # Label para indicar el estado del Autopilot v2 (Fase F del port).
+        # Oculto hasta que detectamos el script Lua v2 instalado en OBS.
+        self.lbl_autopilot_v2 = QLabel("")
+        self.lbl_autopilot_v2.setStyleSheet("color: #6C757D;")
+        self.lbl_autopilot_v2.setToolTip(
+            "Estado del script Autopilot v2 residente en OBS. Mantiene la "
+            "rotacion de canales activa aunque la app se cierre."
+        )
+        self.lbl_autopilot_v2.setVisible(False)
+        self.statusBar().addPermanentWidget(self.lbl_autopilot_v2)
+
         # Label para indicar el estado de la conexión en la barra de estado
         self.lbl_connection_status = QLabel("Desconectado ")
         self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
@@ -197,6 +208,44 @@ class MainWindow(QMainWindow):
     def clear_canvas_size(self):
         self.lbl_canvas.setText("🖥 Canvas: — ")
         self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
+
+    def set_autopilot_v2_ui(self, state: dict | None) -> None:
+        """Actualiza el label de Autopilot v2 segun el state leido del Lua.
+
+        `state`:
+            None → script no detectado o no se pudo leer; oculta el label.
+            dict con `mode` y `canales[]` → formatea segun standby/active.
+        """
+        if state is None:
+            self.lbl_autopilot_v2.setVisible(False)
+            return
+
+        canales = state.get("canales") or []
+        total = len(canales)
+        mode = state.get("mode") or ""
+        version = state.get("script_version") or "?"
+
+        if mode == "active":
+            # Mientras el Lua tiene control, cuenta canales con item/escena
+            # activa (seconds_remaining>0 implica rotacion viva).
+            activos = sum(
+                1 for c in canales
+                if int(c.get("seconds_remaining", 0) or 0) > 0
+            )
+            self.lbl_autopilot_v2.setText(
+                f"🚀 Autopilot v{version} activo · {activos}/{total} rotando "
+            )
+            self.lbl_autopilot_v2.setStyleSheet(
+                "color: #DC3545; font-weight: bold;"
+            )
+        else:
+            self.lbl_autopilot_v2.setText(
+                f"🎛 Autopilot v{version} listo · {total} canales "
+            )
+            self.lbl_autopilot_v2.setStyleSheet(
+                "color: #198754; font-weight: bold;"
+            )
+        self.lbl_autopilot_v2.setVisible(True)
 
     def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
         """Actualiza el indicador global de transmisión en la status bar.
