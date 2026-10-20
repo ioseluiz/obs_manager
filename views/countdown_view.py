@@ -85,7 +85,7 @@ class CountdownView(QWidget):
         # --- CONTROLES SUPERIORES ---
         controls_layout = QHBoxLayout()
         self.btn_toggle_sync = QPushButton("▶ Iniciar Sincronización")
-        self.btn_toggle_sync.setStyleSheet("background-color: #198754;")
+        self.btn_toggle_sync.setProperty("role", "success")
         controls_layout.addWidget(self.btn_toggle_sync)
         controls_layout.addStretch()
         self.btn_refresh_sources = QPushButton("↻ Refrescar de OBS")
@@ -109,17 +109,27 @@ class CountdownView(QWidget):
         # --- BOTONES CRUD ---
         btn_row = QHBoxLayout()
         self.btn_add = QPushButton("➕ Nuevo Contador")
-        self.btn_add.setStyleSheet("background-color: #198754; color: white; font-weight: bold;")
+        self.btn_add.setProperty("role", "success")
         self.btn_edit = QPushButton("✏ Editar Seleccionado")
-        self.btn_edit.setStyleSheet("background-color: #0D6EFD; color: white;")
+        self.btn_edit.setProperty("role", "primary")
         self.btn_position = QPushButton("🎯 Ajustar Posición")
+        self.btn_position.setProperty("role", "primary")
         self.btn_delete = QPushButton("🗑 Eliminar Seleccionado")
-        self.btn_delete.setStyleSheet("background-color: #DC3545; color: white;")
+        self.btn_delete.setProperty("role", "danger")
 
         btn_row.addWidget(self.btn_add)
         btn_row.addWidget(self.btn_edit)
         btn_row.addWidget(self.btn_position)
         btn_row.addWidget(self.btn_delete)
+
+        # Fase 1 UI redesign: iconos corporativos tintados en blanco.
+        from views.theme.icons import apply_icon
+        apply_icon(self.btn_add, "➕", color="#FFFFFF")
+        apply_icon(self.btn_edit, "✏", color="#FFFFFF")
+        apply_icon(self.btn_position, "ajustes_deslizadores", color="#FFFFFF")
+        apply_icon(self.btn_delete, "🗑", color="#FFFFFF")
+        apply_icon(self.btn_toggle_sync, "▶", color="#FFFFFF")
+
         self.layout.addLayout(btn_row)
 
     def populate_table(self, countdowns):
