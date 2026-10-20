@@ -12,6 +12,7 @@ Aplicación de escritorio desarrollada en Python con PyQt6 para la automatizaci�
 - [🎛 Canales Multi-Salida](#-canales-multi-salida)
 - [🎥 Reproducir un canal en una pantalla](#-reproducir-un-canal-en-una-pantalla)
 - [📊 Calibración de Capacidad](#-calibración-de-capacidad)
+- [🎛 Autopilot v2 (rotación persistente)](#-autopilot-v2-rotación-persistente)
 - [🔐 Sesiones de Dashboard (Power BI)](#-sesiones-de-dashboard-power-bi-sistemas-con-login)
 - [📂 Ubicaciones de Datos](#-ubicaciones-de-datos)
 - [📦 Instalador de Windows](#-instalador-de-windows)
@@ -112,6 +113,14 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 - **Watchdog runtime** — vigila `encoding_lag` cada 10s durante producción, avisa non-blocking si detecta degradación sostenida.
 - **Botón 🎥 Preview** — verificá localmente lo que sale por el UDP del canal sin depender del firewall.
 - **Botón 🔬 Diagnóstico** — inspecciona los settings efectivos del filtro `udp_out` en OBS.
+
+### Autopilot v2 (rotación persistente dentro de OBS)
+- **Script Lua residente** — se instala una sola vez en el OBS del servidor y mantiene la rotación de todos los canales (multi-salida + Canal Principal) activa cuando la app cliente se cierra o la laptop se apaga.
+- **Dos modos** — `scene_items` para canales multi-salida (`SetSceneItemEnabled` dentro de la escena contenedora) y `program_global` para Canal Principal legacy (`SetCurrentProgramScene`).
+- **Hand-off bidireccional** — al cerrar la app publica un último payload con `active_index + seconds_remaining` por canal; al reconectar lee el estado del Lua y restaura los rotadores locales sin salto visible en la UI.
+- **Protección de filtros Source Record** — mientras el Lua tiene control, en cada tick verifica que cada filtro `udp_out` esté habilitado y lo re-habilita si lo encuentra off.
+- **Convivencia con Autopilot v1** — buzones distintos (`__autopilot_config_v2__` / `__autopilot_state_v2__`); si tienes el script v1 cargado en el mismo OBS, ambos coexisten.
+- **Status bar + wizard** — label `🎛 Autopilot v2 listo · N canales` en standby / `🚀 Autopilot v2 activo · K/N rotando` cuando toma control; wizard de instalación en Ajustes → sección Autopilot v2.
 
 ## 🛠️ Requisitos del Sistema
 
@@ -375,6 +384,59 @@ Toma ~60 segundos por encoder. Se puede cancelar — guarda lo que alcanzó a me
 
 - **Al conectar OBS**: la app compara los canales habilitados vs el `nmax` calibrado. Si excede, aparece un dialog con las sugerencias por canal ("baje `edif721` a 720p" o "cambie encoder a qsv"). Nunca auto-degrada — el user decide.
 - **Durante producción**: un watchdog cada 10s mide skipped frames. Si sostenidamente >5% durante 30s, aparece un aviso en la barra de estado. También non-bloqueante.
+
+## 🎛 Autopilot v2 (rotación persistente)
+
+Mantiene la rotación de **todos** los canales (multi-salida + Canal Principal) activa aunque la app cliente se cierre o la laptop se apague. Portado desde la línea `v1.8.x` (que soportaba una sola escena de programa) y adaptado para el modelo multi-canal de v2.
+
+### Concepto
+
+Un script Lua residente dentro de OBS (`autopilot_v2.lua`) escucha un buzón JSON publicado por la app vía dos text sources ocultos. Mientras recibe heartbeats frescos (≤ 30 s), el script está en `standby`. Si el heartbeat vence — porque la app se cerró o perdió conexión — el script pasa a `active` y empieza a rotar por su cuenta usando el último `handoff` recibido (índice actual + segundos restantes por canal).
+
+### Instalación — una sola vez por servidor
+
+1. **Ajustes → sección Autopilot v2 → `🚀 Instalar / Verificar Autopilot v2`**.
+2. Pulsa **📥 Exportar a Descargas** (o **💾 Exportar como…** para elegir destino).
+3. En el OBS del servidor: **Herramientas → Scripts → +** y selecciona el `autopilot_v2.lua` exportado.
+4. En el log de Scripts de OBS deberías ver:
+   ```
+   [autopilot_v2] cargando v2.0.0
+   [autopilot_v2] creado text source: __autopilot_config_v2__
+   [autopilot_v2] creado text source: __autopilot_state_v2__
+   [autopilot_v2] timers armados; a la espera de config v2 de la app
+   ```
+5. Vuelve al diálogo de la app y pulsa **🔎 Verificar instalación**. Debería confirmar la versión y modo actual.
+
+Después de la primera instalación, cada vez que la app arranca y detecta el script, aparece en la barra de estado:
+- `🎛 Autopilot v2.0.0 listo · N canales` cuando el script está en standby (la app lo controla).
+- `🚀 Autopilot v2.0.0 activo · K/N rotando` cuando el script tomó control.
+
+### Verificación end-to-end
+
+1. Levanta la app, conecta a OBS, habilita al menos un canal multi-salida y pulsa **▶ Transmitir + Play**.
+2. En la pestaña de Scripts de OBS, log del `autopilot_v2`: deberías ver `config v<N> cargada (N canales)` tras cada rotación en la app.
+3. **Cierra la app** con la X. En el log de la terminal, última línea debe decir `AutopilotV2Controller detenido (handoff=si)`.
+4. Espera ~30-40 segundos. El log del script en OBS pasa a `mode=active` y cada canal empieza a rotar por su cuenta: `[autopilot_v2] canal <id> rotate -> '<item>' (Ns)`.
+5. Las pantallas receptoras siguen viendo contenido rotando sin la app.
+6. **Vuelve a abrir la app**. En su log inicial deberías ver: `Autopilot v2: N rotador(es) sincronizados desde el Lua activo` — la UI retoma exactamente desde donde el Lua la dejó, sin salto visible.
+
+### Convivencia con Autopilot v1
+
+Si tu servidor ya tiene cargado el `autopilot.lua` v1 (release `v1.8.x`), **no hay que removerlo**. Los dos scripts usan buzones distintos y no interfieren:
+- v1: `__autopilot_config__` / `__autopilot_state__`.
+- v2: `__autopilot_config_v2__` / `__autopilot_state_v2__`.
+
+El wizard de instalación v2 detecta la presencia de v1 y lo informa, sin tocarlo. Esto permite rollback instantáneo si algo falla con v2: basta cerrar la app v2 y abrir la v1 — el script v1 toma control del Program global como siempre.
+
+### Protocolo
+
+Contrato JSON documentado en [`obs_scripts/PROTOCOL_v2.md`](obs_scripts/PROTOCOL_v2.md): forma del payload de config, campos del state publicado, flujo end-to-end, reglas de compatibilidad.
+
+### Limitaciones conocidas
+
+- El Lua **no gestiona pausas** — si la app estaba pausada al cerrar, el handoff publica el snapshot del momento pero el Lua reanudará la rotación al tomar control (consistente con "pausas son estado del cliente").
+- El Lua **no refresca escenas tipo URL** (dashboards live) ni reseeka videos — solo cambia de item. Las features de refresh/offset viven en el cliente.
+- El Lua **respeta ventanas horarias** por item (`active_days` bitmask + `active_time_start/end` HH:MM) igual que el cliente.
 
 ## 🔐 Sesiones de Dashboard (Power BI, sistemas con login)
 
