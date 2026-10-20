@@ -71,12 +71,13 @@ class HomeView(QWidget):
     # ------------------------------------------------------------------
 
     def _build_hero(self) -> QWidget:
-        hero = QFrame()
+        hero = QWidget()
+        hero.setObjectName("HomeHero")
         hero.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         hero.setStyleSheet(
-            f"QFrame {{ background: {COLORS['bg_panel']}; "
+            f"#HomeHero {{ background: {COLORS['bg_panel']}; "
             f"border: 1px solid {COLORS['border_default']}; "
-            f"border-radius: 8px; }}"
+            f"border-radius: 10px; }}"
         )
         col = QVBoxLayout(hero)
         col.setContentsMargins(SPACING["xl"], SPACING["lg"],
@@ -192,13 +193,14 @@ class HomeView(QWidget):
         row.addWidget(self._build_channels_preview_card(), 2)
         return row
 
-    def _build_obs_status_card(self) -> QFrame:
-        card = QFrame()
+    def _build_obs_status_card(self) -> QWidget:
+        card = QWidget()
+        card.setObjectName("HomeObsCard")
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         card.setStyleSheet(
-            f"QFrame {{ background: {COLORS['bg_panel']}; "
+            f"#HomeObsCard {{ background: {COLORS['bg_panel']}; "
             f"border: 1px solid {COLORS['border_default']}; "
-            f"border-radius: 8px; }}"
+            f"border-radius: 10px; }}"
         )
         col = QVBoxLayout(card)
         col.setContentsMargins(SPACING["lg"], SPACING["lg"],
@@ -256,13 +258,14 @@ class HomeView(QWidget):
         self.btn_obs_disconnect.clicked.connect(self.action_disconnect_obs.emit)
         return card
 
-    def _build_channels_preview_card(self) -> QFrame:
-        wrap = QFrame()
+    def _build_channels_preview_card(self) -> QWidget:
+        wrap = QWidget()
+        wrap.setObjectName("HomePreviewsCard")
         wrap.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         wrap.setStyleSheet(
-            f"QFrame {{ background: {COLORS['bg_panel']}; "
+            f"#HomePreviewsCard {{ background: {COLORS['bg_panel']}; "
             f"border: 1px solid {COLORS['border_default']}; "
-            f"border-radius: 8px; }}"
+            f"border-radius: 10px; }}"
         )
         col = QVBoxLayout(wrap)
         col.setContentsMargins(SPACING["lg"], SPACING["lg"],

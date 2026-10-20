@@ -55,6 +55,25 @@ def _build_qss() -> str:
         border-radius: {r["md"]}px;
     }}
 
+    /* QLabel transparente por default — evita rectangulos "sucios"
+       del fondo bg_app sobre cards de color. Las labels que quieran
+       fondo propio lo setean via setStyleSheet local. */
+    QLabel {{
+        background: transparent;
+        border: none;
+    }}
+
+    /* QScrollArea no debe pintar border propio — su contenido ya trae
+       sus cards con borde. */
+    QScrollArea {{
+        background: transparent;
+        border: none;
+    }}
+
+    QScrollArea > QWidget > QWidget {{
+        background: transparent;
+    }}
+
     /* ============================================================
        QGroupBox — paneles con titulo azul
        ============================================================ */
