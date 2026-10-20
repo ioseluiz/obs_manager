@@ -54,6 +54,10 @@ class CalendarController:
                 w.editingFinished.connect(self._persist_live_calibration)
         # Cambiar la plantilla activa recoloca el marcador y persiste inmediatamente.
         self.view.combo_template_weeks.currentIndexChanged.connect(self._on_template_changed)
+        # Toggle de bloqueo: checked=True significa "modo edición" (desbloqueado).
+        self.view.btn_lock.toggled.connect(
+            lambda checked: self.view._set_locked(not checked)
+        )
         # Los nombres de escena/marcador solo persisten al terminar edición.
         self.view.input_scene_name.editingFinished.connect(self._persist_live_calibration)
         self.view.input_source_name.editingFinished.connect(self._persist_live_calibration)

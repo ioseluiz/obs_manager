@@ -1,8 +1,8 @@
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout,
                              QSpinBox, QPushButton, QLineEdit, QGroupBox,
                              QHBoxLayout, QLabel, QScrollArea, QFrame,
-                             QComboBox)
+                             QComboBox, QAbstractSpinBox)
 
 
 class CalendarView(QWidget):
@@ -206,6 +206,18 @@ class CalendarView(QWidget):
 
         # --- BOTONES DE ACCIÓN ---
         btn_layout = QHBoxLayout()
+
+        # Toggle de bloqueo — protege contra cambios accidentales por scroll o
+        # hover. Los controles de calibración se tocan raramente y cada cambio
+        # se aplica en vivo a OBS + se persiste al perder foco, así que el
+        # accidente es caro. Arranca bloqueado; el usuario "arma" la edición.
+        self.btn_lock = QPushButton()
+        self.btn_lock.setCheckable(True)
+        self.btn_lock.setToolTip(
+            "Bloquea/desbloquea los controles de calibración para evitar "
+            "cambios accidentales al hacer scroll o pasar el mouse."
+        )
+
         self.btn_save = QPushButton("Guardar Calibración")
         self.btn_save.setStyleSheet("background-color: #6C757D;")
         self.btn_test = QPushButton("🎯 Mover Círculo a HOY")
@@ -230,6 +242,7 @@ class CalendarView(QWidget):
             "principal, que importa escenas."
         )
 
+        btn_layout.addWidget(self.btn_lock)
         btn_layout.addWidget(self.btn_save)
         btn_layout.addWidget(self.btn_test)
         btn_layout.addWidget(self.btn_simulate)
@@ -239,9 +252,65 @@ class CalendarView(QWidget):
         self.layout.addLayout(btn_layout)
         self.layout.addStretch()
 
+        # Cache de títulos originales para poder anteponer/quitar el candado
+        # sin acumular prefijos entre toggles.
+        self._group_titles_cache = {
+            g: g.title() for g in self.findChildren(QGroupBox)
+        }
+
+        self._install_wheel_guard()
+        self._set_locked(True)
+
     def _create_spinbox(self, max_val, default_val):
         spin = QSpinBox()
         spin.setRange(-1000, max_val)
         spin.setValue(int(default_val))
         spin.setSuffix(" px")
         return spin
+
+    def _install_wheel_guard(self):
+        """Instala self como event filter en todos los spins/combos para
+        descartar la rueda del mouse cuando el widget no tiene el foco.
+        Segunda capa (siempre activa) contra el scroll accidental en la vista.
+        """
+        for w in self.findChildren(QAbstractSpinBox):
+            w.installEventFilter(self)
+        for w in self.findChildren(QComboBox):
+            w.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
+            return True
+        return super().eventFilter(obj, event)
+
+    def _set_locked(self, locked: bool):
+        """Bloquea/desbloquea todos los spins y combos de la vista.
+        Spins usan setReadOnly para mantener legibilidad del número; combos
+        usan setEnabled porque QComboBox no soporta setReadOnly.
+        """
+        for w in self.findChildren(QAbstractSpinBox):
+            w.setReadOnly(locked)
+            w.setButtonSymbols(
+                QAbstractSpinBox.ButtonSymbols.NoButtons
+                if locked
+                else QAbstractSpinBox.ButtonSymbols.UpDownArrows
+            )
+        for w in self.findChildren(QComboBox):
+            w.setEnabled(not locked)
+
+        for group, base_title in self._group_titles_cache.items():
+            group.setTitle(f"🔒 {base_title}" if locked else base_title)
+
+        if locked:
+            self.btn_lock.setText("🔒 Controles bloqueados")
+            self.btn_lock.setStyleSheet("background-color: #6C757D;")
+        else:
+            self.btn_lock.setText("🔓 Modo edición")
+            self.btn_lock.setStyleSheet("background-color: #FFC107; color: #212529;")
+
+        # Sincronizar el estado checked sin re-disparar toggled.
+        expected = not locked
+        if self.btn_lock.isChecked() != expected:
+            self.btn_lock.blockSignals(True)
+            self.btn_lock.setChecked(expected)
+            self.btn_lock.blockSignals(False)
