@@ -25,10 +25,14 @@ from PyQt6.QtWidgets import (
 from views.theme import COLORS, SPACING
 from views.theme.icons import icon
 
+# Usamos el PNG con fondo transparente real. Los
+# `logo_canal_*_referencia.png` tienen el fondo azul del design pack
+# pintado como pixeles opacos — se ven como un rectangulo sobre el
+# sidebar oscuro.
 _LOGO_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "assets"
-    / "logo_canal_blanco_referencia.png"
+    / "CP_hor_800px (1).png"
 )
 
 SIDEBAR_WIDTH = 240
@@ -148,19 +152,20 @@ class Sidebar(QWidget):
         if not pix.isNull():
             logo.setPixmap(pix.scaledToWidth(
                 140, Qt.TransformationMode.SmoothTransformation))
+            logo.setStyleSheet("background: transparent;")
         else:
             logo.setText("CANAL DE PANAMÁ")
             logo.setStyleSheet(
-                f"color: {COLORS['text_inverse']}; font-weight: bold; "
-                "letter-spacing: 1px;"
+                f"background: transparent; color: {COLORS['text_inverse']}; "
+                "font-weight: bold; letter-spacing: 1px;"
             )
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(logo)
 
         subtitle = QLabel("DIVISIÓN DE INGENIERÍA", container)
         subtitle.setStyleSheet(
-            "color: rgba(255, 255, 255, 180); font-size: 10px; "
-            "letter-spacing: 2px;"
+            "background: transparent; color: rgba(255, 255, 255, 180); "
+            "font-size: 10px; letter-spacing: 2px;"
         )
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
