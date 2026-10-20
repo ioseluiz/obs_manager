@@ -697,6 +697,48 @@ class SceneController:
         date_str = f"{dias[now.weekday()]}, {now.day} de {meses[now.month-1]} de {now.year}"
         self.view.lbl_date.setText(date_str)
 
+    def sync_from_handoff(self, active_scene_name: str,
+                          remaining_sec: int) -> bool:
+        """Restaura el estado del rotador global desde un handoff del
+        Lua Autopilot v2.
+
+        Busca `active_scene_name` en `scenes_list`; si lo encuentra,
+        actualiza `active_scene_name`, `time_left`, `current_index`
+        (next-to-show) y arranca el countdown de 1s. **No cambia la
+        escena de OBS** — asume que el Lua ya la puso correctamente
+        antes de ceder control; cambiarla aqui provocaria un parpadeo.
+
+        Returns True si se sincronizo, False si la escena del handoff
+        ya no esta en la lista local (ejemplo: borrada mientras la app
+        estaba cerrada).
+        """
+        if not self.scenes_list:
+            return False
+        for i, scene in enumerate(self.scenes_list):
+            if scene.get("name") == active_scene_name:
+                self.active_scene_name = active_scene_name
+                self.time_left = max(1, int(remaining_sec))
+                self.current_index = (i + 1) % len(self.scenes_list)
+                self.is_paused = False
+                self.refresh_timer.stop()
+                self.retry_timer.stop()
+                if self.timer.isActive():
+                    self.timer.stop()
+                self.timer.start(1000)
+                try:
+                    self.view.set_rotator_state("running")
+                    self.update_status_label()
+                    self.view.highlight_active_scene(active_scene_name)
+                except Exception as e:
+                    log.debug("sync view update fallo: %s", e)
+                log.info(
+                    "Rotador global sync desde Autopilot v2: '%s' (%ds restantes)",
+                    active_scene_name, remaining_sec,
+                )
+                self._notify_rotator_change()
+                return True
+        return False
+
     def register_on_rotator_change(self, cb) -> None:
         """Registra un callback invocado cada vez que el rotador global
         cambia de estado (start/stop/pause/resume/rotate). El callback no

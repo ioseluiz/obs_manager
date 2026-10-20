@@ -623,6 +623,50 @@ class CanalController(QObject):
             status = {"canal_id": canal_id}
         self.canal_status_changed.emit(canal_id, status)
 
+    def sync_from_handoff(self, canal_id: int,
+                          active_scene_item_id: int,
+                          remaining_sec: int) -> bool:
+        """Restaura el estado del rotador de un canal desde un handoff
+        publicado por el Lua Autopilot v2.
+
+        Localiza en la playlist el item cuyo scene_item_id coincide con
+        active_scene_item_id, actualiza state.active_index y re-arma el
+        timer con remaining_sec. No vuelve a tocar OBS — el Lua ya dejo
+        el scene item correcto visible antes de ceder control.
+
+        Returns True si se sincronizo, False si el canal no esta
+        aplicado o el scene_item_id no corresponde a ningun item vivo
+        de la playlist (ejemplo: la playlist se edito mientras la app
+        estaba cerrada).
+        """
+        state = self._rotators.get(canal_id)
+        if state is None:
+            return False
+        target_item_id = None
+        for item_id, si in state.item_to_scene_item.items():
+            if si == active_scene_item_id:
+                target_item_id = item_id
+                break
+        if target_item_id is None:
+            return False
+        for i, entry in enumerate(state.playlist):
+            if entry.item_id == target_item_id:
+                state.active_index = i
+                state.is_paused = False
+                state.remaining_ms = 0
+                state.placeholder_visible = False
+                self._ensure_timer(state)
+                if state.timer.isActive():
+                    state.timer.stop()
+                state.timer.start(max(1, int(remaining_sec)) * 1000)
+                log.info(
+                    "Canal %d sync desde Autopilot v2: index=%d (%ds restantes)",
+                    canal_id, i, remaining_sec,
+                )
+                self._emit_status(canal_id)
+                return True
+        return False
+
     def get_status(self, canal_id: int) -> dict[str, Any]:
         """Estado en memoria del canal — para UI o tests."""
         state = self._rotators.get(canal_id)

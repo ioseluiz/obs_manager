@@ -494,6 +494,104 @@ def test_publish_recupera_de_not_installed():
     ctrl.stop()
 
 
+# --------------------------------------------------------------------------
+# Tests de sync_from_handoff (Fase E)
+# --------------------------------------------------------------------------
+
+def test_canal_sync_from_handoff_happy_path():
+    print("[CanalController.sync_from_handoff: happy path]")
+    _ensure_qapp()
+    from controllers.canal_controller import CanalController
+
+    # Mocks minimos para instanciar
+    cc = CanalController(MagicMock(), MagicMock(), MagicMock())
+    state = _make_state(7, "canal_x",
+                        [(100, 20, 500), (101, 30, 501)],
+                        active_index=0, remaining_ms=0)
+    cc._rotators[7] = state
+
+    ok = cc.sync_from_handoff(canal_id=7, active_scene_item_id=501,
+                               remaining_sec=12)
+    _check(ok is True, "sync devuelve True con item valido")
+    _check(state.active_index == 1,
+           "active_index actualizado al indice del item (501 esta en pos 1)")
+    _check(state.timer is not None,
+           "timer fue creado por _ensure_timer")
+    _check(not state.is_paused, "is_paused=False tras sync")
+    _check(state.remaining_ms == 0, "remaining_ms reseteado (ya no pausado)")
+
+
+def test_canal_sync_from_handoff_canal_no_aplicado():
+    print("[CanalController.sync_from_handoff: canal no aplicado -> False]")
+    _ensure_qapp()
+    from controllers.canal_controller import CanalController
+    cc = CanalController(MagicMock(), MagicMock(), MagicMock())
+    _check(cc.sync_from_handoff(99, 500, 10) is False,
+           "canal sin _RotatorState devuelve False")
+
+
+def test_canal_sync_from_handoff_item_no_en_playlist():
+    print("[CanalController.sync_from_handoff: scene_item_id ajeno -> False]")
+    _ensure_qapp()
+    from controllers.canal_controller import CanalController
+    cc = CanalController(MagicMock(), MagicMock(), MagicMock())
+    state = _make_state(7, "canal_x", [(100, 20, 500)])
+    cc._rotators[7] = state
+    # scene_item_id=999 no esta en item_to_scene_item (500 solo)
+    _check(cc.sync_from_handoff(7, 999, 10) is False,
+           "scene_item_id ajeno devuelve False")
+
+
+def test_scene_sync_from_handoff_happy_path():
+    print("[SceneController.sync_from_handoff: happy path]")
+    _ensure_qapp()
+    from controllers.scene_controller import SceneController
+    # Construimos SceneController real pero con view/model/obs/settings/cal
+    # mockeados — las lineas de sync_from_handoff solo tocan atributos
+    # internos + metodos del view (que son MagicMock).
+    view = MagicMock()
+    sc = SceneController(view, MagicMock(), MagicMock(), MagicMock(),
+                          MagicMock())
+    sc.scenes_list = [
+        {"name": "A"}, {"name": "B"}, {"name": "C"},
+    ]
+    ok = sc.sync_from_handoff(active_scene_name="B", remaining_sec=8)
+    _check(ok is True, "sync devuelve True con escena valida")
+    _check(sc.active_scene_name == "B", "active_scene_name actualizado")
+    _check(sc.time_left == 8, "time_left actualizado")
+    _check(sc.current_index == 2,
+           "current_index apunta al siguiente a mostrar (B esta en pos 1)")
+    _check(not sc.is_paused, "is_paused=False tras sync")
+    # view.set_rotator_state y highlight_active_scene fueron llamados
+    view.set_rotator_state.assert_called_with("running")
+    view.highlight_active_scene.assert_called_with("B")
+    _check(True, "view.set_rotator_state('running') y highlight llamados")
+
+
+def test_scene_sync_from_handoff_escena_ajena():
+    print("[SceneController.sync_from_handoff: escena no en lista -> False]")
+    _ensure_qapp()
+    from controllers.scene_controller import SceneController
+    view = MagicMock()
+    sc = SceneController(view, MagicMock(), MagicMock(), MagicMock(),
+                          MagicMock())
+    sc.scenes_list = [{"name": "A"}]
+    _check(sc.sync_from_handoff("B", 8) is False,
+           "escena ajena a scenes_list devuelve False")
+
+
+def test_scene_sync_from_handoff_sin_scenes():
+    print("[SceneController.sync_from_handoff: scenes_list vacia -> False]")
+    _ensure_qapp()
+    from controllers.scene_controller import SceneController
+    view = MagicMock()
+    sc = SceneController(view, MagicMock(), MagicMock(), MagicMock(),
+                          MagicMock())
+    sc.scenes_list = []
+    _check(sc.sync_from_handoff("A", 8) is False,
+           "scenes_list vacia devuelve False")
+
+
 def main():
     print("=== AutopilotV2Controller smoke tests ===")
     test_collect_happy_path_2_canales()
@@ -513,6 +611,12 @@ def main():
     test_on_canal_status_changed_arma_debouncer()
     test_publish_recupera_de_not_installed()
     test_scene_controller_callback_se_registra()
+    test_canal_sync_from_handoff_happy_path()
+    test_canal_sync_from_handoff_canal_no_aplicado()
+    test_canal_sync_from_handoff_item_no_en_playlist()
+    test_scene_sync_from_handoff_happy_path()
+    test_scene_sync_from_handoff_escena_ajena()
+    test_scene_sync_from_handoff_sin_scenes()
     print("\n=== TODO OK ===")
 
 

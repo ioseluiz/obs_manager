@@ -225,8 +225,17 @@ class MainController:
         self._auto_apply_canales()
         # Arrancar watchdog de encoding_lag (Fase 2f)
         self._start_lag_watchdog()
+        # Fase E del port: si el Lua Autopilot v2 estuvo rotando mientras
+        # la app estaba cerrada, leer su estado y restaurar los rotadores
+        # locales (active_index + remaining) antes de retomar control.
+        try:
+            self._sync_from_autopilot_v2()
+        except Exception as e:
+            log.warning("Sync bidireccional Autopilot v2 fallo en connect: %s", e)
         # Arrancar Autopilot v2 (Fase C del port). Idempotente: si el
-        # script Lua no esta instalado se queda inactivo.
+        # script Lua no esta instalado se queda inactivo. Debe ir despues
+        # del sync para que el primer publish lleve los handoffs
+        # restaurados (y el Lua vuelva a standby con la foto correcta).
         try:
             self.autopilot_v2.start()
         except Exception as e:
@@ -298,6 +307,14 @@ class MainController:
         self._auto_apply_canales()
         # Reiniciar watchdog de encoding_lag (Fase 2f) tras reconexión.
         self._start_lag_watchdog()
+        # Fase E del port: sync bidireccional con el Lua Autopilot v2.
+        # Si durante la caida de OBS el Lua estuvo rotando por su cuenta
+        # (mode=active), restaurar active_index + remaining en los
+        # rotadores locales antes de retomar control.
+        try:
+            self._sync_from_autopilot_v2()
+        except Exception as e:
+            log.warning("Sync bidireccional Autopilot v2 fallo en reconexion: %s", e)
         # Re-arrancar Autopilot v2 (Fase C del port). El start() es
         # idempotente y re-detecta si el script Lua esta instalado.
         try:
@@ -309,6 +326,54 @@ class MainController:
             self._rotator_was_running = False
             self.scene_controller.rotate_to_next_scene()
             log.info("Rotador reanudado tras reconexión.")
+
+    def _sync_from_autopilot_v2(self):
+        """Fase E del port de Autopilot v2.
+
+        Lee el estado publicado por el Lua residente en OBS
+        (`__autopilot_state_v2__`). Si el script estaba en mode=active
+        (porque la app estuvo cerrada o perdio OBS), significa que el
+        Lua tomo control de los rotadores. Al reconectar, restauramos
+        en los rotadores locales la foto exacta — active_index +
+        remaining — asi la UI no muestra un salto y el proximo tick
+        continua desde donde el Lua dejo.
+
+        Si el Lua estaba en standby (la app NO perdio heartbeat) o si
+        el script no esta instalado, no hay nada que sincronizar.
+        """
+        if not self.autopilot_v2_client.is_installed():
+            return
+        state = self.autopilot_v2_client.read_state()
+        if state is None:
+            return
+        if state.get("mode") != "active":
+            return
+
+        synced = 0
+        for entry in state.get("canales") or []:
+            try:
+                canal_id = int(entry.get("canal_id", -999999))
+                remaining = int(entry.get("seconds_remaining", 0) or 0)
+                if remaining <= 0:
+                    continue
+                if canal_id == -1:
+                    active_scene = str(entry.get("active_scene") or "")
+                    if active_scene and self.scene_controller.sync_from_handoff(
+                            active_scene, remaining):
+                        synced += 1
+                else:
+                    active_si = int(entry.get("active_scene_item_id", 0) or 0)
+                    if active_si > 0 and self.canal_controller.sync_from_handoff(
+                            canal_id, active_si, remaining):
+                        synced += 1
+            except Exception as e:
+                log.debug("sync entry Autopilot v2 fallo: %s", e)
+
+        if synced:
+            log.info(
+                "Autopilot v2: %d rotador(es) sincronizados desde el Lua activo",
+                synced,
+            )
 
     def _auto_apply_canales(self):
         """Aplica en OBS los canales habilitados del modelo (Fase 1e).
