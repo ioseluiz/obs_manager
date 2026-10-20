@@ -34,7 +34,7 @@ class LogsView(QWidget):
 
         top = QHBoxLayout()
         self.lbl_path = QLabel(f"Archivo: {self._log_path}")
-        self.lbl_path.setStyleSheet("color: #6C757D;")
+        self.lbl_path.setProperty("role", "status-muted")
         top.addWidget(self.lbl_path, 1)
 
         self.chk_autorefresh = QCheckBox("Auto-refrescar cada 5s")
