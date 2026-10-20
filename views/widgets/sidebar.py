@@ -25,14 +25,13 @@ from PyQt6.QtWidgets import (
 from views.theme import COLORS, SPACING
 from views.theme.icons import icon
 
-# Usamos el PNG con fondo transparente real. Los
-# `logo_canal_*_referencia.png` tienen el fondo azul del design pack
-# pintado como pixeles opacos — se ven como un rectangulo sobre el
-# sidebar oscuro.
+# Logo del Canal procesado desde `CP_RGB_p_VerAlt (1).jpg` por el
+# script del commit de assets: silueta blanca con fondo transparente,
+# anti-aliasing preservado via alpha = 255 - luminosidad.
 _LOGO_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "assets"
-    / "CP_hor_800px (1).png"
+    / "logo_canal_blanco_transparent.png"
 )
 
 SIDEBAR_WIDTH = 240
