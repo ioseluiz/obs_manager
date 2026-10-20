@@ -46,9 +46,18 @@ class SceneView(QWidget):
         super().__init__()
         self._compact_mode = compact_mode
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(8, 6, 8, 6)
-        self.layout.setSpacing(6)
+        self.layout.setContentsMargins(16, 12, 16, 12)
+        self.layout.setSpacing(12)
         self._active_scene_name = None
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        self.layout.addWidget(HeroHeader(
+            "escenas",
+            "Biblioteca de Escenas",
+            "Gestiona y organiza las escenas del rotador en OBS Studio.",
+            variant="red",
+        ))
 
         # --- PANEL SUPERIOR: Controles de Reproducción ---
         controls_layout = QHBoxLayout()

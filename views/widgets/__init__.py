@@ -8,6 +8,7 @@
 from .action_button import ActionButton
 from .app_header import AppHeader
 from .channel_preview_card import ChannelPreviewCard
+from .hero_header import HeroHeader
 from .kpi_card import KpiCard
 from .sidebar import Sidebar
 
@@ -15,6 +16,7 @@ __all__ = [
     "ActionButton",
     "AppHeader",
     "ChannelPreviewCard",
+    "HeroHeader",
     "KpiCard",
     "Sidebar",
 ]

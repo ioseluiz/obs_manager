@@ -65,13 +65,22 @@ class CountdownView(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(8, 6, 8, 6)
-        self.layout.setSpacing(6)
+        self.layout.setContentsMargins(16, 12, 16, 12)
+        self.layout.setSpacing(12)
 
         # Cache de escenas/fuentes reales de OBS — se pasan al CountdownEditDialog
         # cuando se abre (tanto para "Nuevo" como para "Editar").
         self._scene_choices = []
         self._source_choices = []
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        self.layout.addWidget(HeroHeader(
+            "contadores",
+            "Contadores",
+            "Gestiona los contadores de cuenta regresiva o ascendente vinculados a escenas en OBS Studio.",
+            variant="blue",
+        ))
 
         # --- CONTROLES SUPERIORES ---
         controls_layout = QHBoxLayout()

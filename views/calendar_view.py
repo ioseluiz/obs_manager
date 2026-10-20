@@ -13,7 +13,17 @@ class CalendarView(QWidget):
         # Esto permite trabajar cómodamente en laptops de 14" donde el
         # contenido combinado (4 groupboxes) excede la altura útil (~540px).
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(12)
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        root.addWidget(HeroHeader(
+            "calendario",
+            "Calendario de Cumpleaños",
+            "Configura la escena del marcador que se mueve al día actual en OBS Studio.",
+            variant="orange",
+        ))
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)

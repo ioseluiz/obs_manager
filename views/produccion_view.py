@@ -58,8 +58,17 @@ class ProduccionView(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(6, 6, 6, 6)
-        root.setSpacing(6)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(12)
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        root.addWidget(HeroHeader(
+            "produccion",
+            "Producción",
+            "Controla la transmisión, los canales y la reproducción del rotador en OBS Studio.",
+            variant="navy",
+        ))
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
