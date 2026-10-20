@@ -25,7 +25,9 @@ from controllers.canal_controller import CanalController
 
 from core.autopilot_client import AutopilotClientV2
 from controllers.autopilot_v2_controller import AutopilotV2Controller
+from controllers.home_controller import HomeController
 from views.autopilot_install_v2_dialog import AutopilotInstallV2Dialog
+from views.home_view import HomeView
 
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
 
@@ -50,6 +52,13 @@ class MainController:
         self.settings_model = SettingsModel()
         self.main_window = MainWindow()
         
+        # 0. Pestana Inicio (Fase 3 UI redesign) — va primera en el sidebar.
+        # La view se agrega aqui; el controller se instancia al final del
+        # __init__ cuando ya existen todos los modelos y controllers que
+        # alimentan sus KPIs.
+        self.home_view = HomeView()
+        self.main_window.add_section(self.home_view, "Inicio", "inicio")
+
         # 1. Iniciar Módulo de Calendario PRIMERO (porque SceneController lo va a necesitar)
         self.scene_model = SceneModel()  # se necesita antes para pasarlo al CalendarController
         self.calendar_model = CalendarModel()
@@ -135,6 +144,30 @@ class MainController:
         self._record_timer = QTimer()
         self._record_timer.setInterval(1000)
         self._record_timer.timeout.connect(self._poll_recording_status)
+
+        # Fase 3 UI redesign: controller de la pestana Inicio. Se instancia
+        # aqui porque ya existen todos los modelos + canal_controller que
+        # alimentan sus KPIs y previews. Las acciones rapidas se encadenan
+        # a los handlers existentes del MainController.
+        self.home_controller = HomeController(
+            self.home_view,
+            canal_model=self.canal_model,
+            scene_model=self.scene_model,
+            obs_client=self.obs_client,
+            settings_model=self.settings_model,
+            canal_controller=self.canal_controller,
+        )
+        self.home_view.action_new_canal.connect(
+            lambda: self.main_window.set_active_section(4)
+        )
+        self.home_view.action_connect_obs.connect(self.connect_to_obs)
+        self.home_view.action_import.connect(self.import_scenes)
+        self.home_view.action_open_schedule.connect(
+            lambda: self.main_window.set_active_section(1)
+        )
+        self.home_view.action_open_settings.connect(self.open_settings)
+        # action_disconnect_obs no se conecta: no hay desconexion
+        # explicita en v1 — el watchdog gestiona la conexion.
 
         self._connect_signals()
 
