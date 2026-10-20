@@ -96,13 +96,17 @@ class MainController:
         )
         self.main_window.tabs.addTab(self.produccion_view, "Producción")
 
-        # 3.6 Autopilot v2 (Fase C del port): mantiene la rotacion de los
-        # canales multi-salida activa aunque la app se cierre. Requiere
-        # que el usuario haya instalado `autopilot_v2.lua` en OBS; si no
-        # esta, el controller se queda inactivo sin romper nada.
+        # 3.6 Autopilot v2 (Fases C + D del port): mantiene la rotacion
+        # de los canales multi-salida activa + la rotacion del Canal
+        # Principal legacy (program_global) aunque la app se cierre.
+        # Requiere que el usuario haya instalado `autopilot_v2.lua` en
+        # OBS; si no esta, el controller se queda inactivo sin romper
+        # nada.
         self.autopilot_v2_client = AutopilotClientV2(self.obs_client)
         self.autopilot_v2 = AutopilotV2Controller(
-            self.autopilot_v2_client, self.canal_controller,
+            self.autopilot_v2_client,
+            self.canal_controller,
+            scene_controller=self.scene_controller,
         )
 
         # 3.5 Pestaña de Logs

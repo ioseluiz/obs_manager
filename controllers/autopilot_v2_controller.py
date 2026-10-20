@@ -23,6 +23,7 @@ from typing import Any
 from PyQt6.QtCore import QObject, QTimer, pyqtSlot
 
 from core.autopilot_client import (
+    MODE_PROGRAM_GLOBAL,
     MODE_SCENE_ITEMS,
     AutopilotClientV2,
     AutopilotV2NotInstalled,
@@ -34,28 +35,89 @@ _FILTER_NAME = "udp_out"  # misma constante que core/output_adapter.py
 _HEARTBEAT_INTERVAL_MS = 5000
 _DEBOUNCE_PUBLISH_MS = 300
 
+# Canal Principal legacy (rotador global del SceneController). Convive con
+# los canales multi-salida bajo este canal_id reservado.
+CANAL_ID_PRINCIPAL = -1
 
-def collect_canales_payload(canal_controller) -> list[dict[str, Any]]:
+
+def _collect_canal_principal_entry(scene_controller) -> dict[str, Any] | None:
+    """Entry del Canal Principal para el payload v2, o None si no aplica.
+
+    Solo incluye el Canal Principal cuando el rotador legacy esta
+    corriendo (`timer.isActive()`) o pausado (`is_paused=True`). Si esta
+    completamente detenido, no publicamos — el user no quiere que ese
+    canal rote si el Lua toma control.
+    """
+    scenes_list = getattr(scene_controller, "scenes_list", None) or []
+    timer = getattr(scene_controller, "timer", None)
+    is_paused = bool(getattr(scene_controller, "is_paused", False))
+    is_running = bool(timer is not None and timer.isActive())
+    if not scenes_list or (not is_running and not is_paused):
+        return None
+
+    playlist: list[dict[str, Any]] = []
+    for sc in scenes_list:
+        name = sc.get("name") or ""
+        if not name:
+            continue
+        playlist.append({
+            "name": name,
+            "duration_seg": int(sc.get("duration") or 20),
+            "active_days": int(sc.get("active_days") or 127),
+            "active_time_start": sc.get("active_time_start") or "",
+            "active_time_end": sc.get("active_time_end") or "",
+        })
+
+    active_scene = str(getattr(scene_controller, "active_scene_name", "") or "")
+    time_left = int(getattr(scene_controller, "time_left", 0) or 0)
+    handoff = {
+        "active_scene": active_scene,
+        "seconds_remaining": time_left,
+    }
+
+    return {
+        "canal_id": CANAL_ID_PRINCIPAL,
+        "modo_rotacion": MODE_PROGRAM_GLOBAL,
+        "playlist": playlist,
+        "handoff": handoff,
+    }
+
+
+def collect_canales_payload(canal_controller,
+                            scene_controller=None) -> list[dict[str, Any]]:
     """Arma el array `canales[]` del protocolo v2 desde el estado actual
-    del `CanalController`.
+    del `CanalController` y, opcionalmente, del `SceneController`
+    (Canal Principal legacy).
 
-    Solo incluye canales con `_RotatorState` aplicado (hay escena creada
-    en OBS) y habilitados en el modelo. Para cada canal:
-
-    - `modo_rotacion = "scene_items"` (Canal Principal sigue en Fase D).
+    Para cada canal multi-salida (de `CanalController._rotators`), solo
+    incluye los que esten aplicados (escena creada en OBS) y habilitados
+    en el modelo:
+    - `modo_rotacion = "scene_items"`.
     - `scene_name` = nombre de la escena contenedora.
     - `filter_name = "udp_out"` (constante del output_adapter).
     - `playlist[]` iterando `_RotatorState.playlist`: resuelve
       `scene_item_id` por `item_to_scene_item` y `name` por join con
       la secuencia en `scene_model`.
     - `handoff` con `active_index` (1-based) + `seconds_remaining`
-      actuales desde `get_status`. Si `active_index` es 0 o
-      `seconds_remaining` <= 0, el cliente lo filtra solo (bug C del v1).
+      actuales desde `get_status`.
+
+    Para el Canal Principal (si `scene_controller` presente y el rotador
+    esta corriendo o pausado), agrega un entry con `canal_id=-1`,
+    `modo_rotacion="program_global"` y la playlist completa del rotador
+    legacy. Handoff con el `active_scene` + `time_left` actuales.
 
     Es funcion pura: no toca OBS ni la red, solo lee estructuras en
     memoria + BD local. Testeable headless con mocks.
     """
     canales: list[dict[str, Any]] = []
+
+    # Canal Principal primero (-1) por convencion operacional: el Lua lo
+    # procesa en orden y el rotador global es la rotacion mas visible.
+    if scene_controller is not None:
+        principal = _collect_canal_principal_entry(scene_controller)
+        if principal is not None:
+            canales.append(principal)
+
     rotators = getattr(canal_controller, "_rotators", {}) or {}
     canal_model = getattr(canal_controller, "canal_model", None)
     scene_model = getattr(canal_controller, "scene_model", None)
@@ -139,10 +201,11 @@ class AutopilotV2Controller(QObject):
     """
 
     def __init__(self, autopilot_client: AutopilotClientV2,
-                 canal_controller, parent=None):
+                 canal_controller, scene_controller=None, parent=None):
         super().__init__(parent)
         self._ap = autopilot_client
         self._canal_ctrl = canal_controller
+        self._scene_ctrl = scene_controller
         self._enabled = False
         self._script_present: bool | None = None
 
@@ -156,6 +219,12 @@ class AutopilotV2Controller(QObject):
         self._publish_debouncer.timeout.connect(self._on_debounced_publish)
 
         canal_controller.canal_status_changed.connect(self._on_canal_status_changed)
+
+        # Callback publico para que el SceneController (sin herencia QObject)
+        # avise cuando el rotador global cambia de estado.
+        if scene_controller is not None and hasattr(
+                scene_controller, "register_on_rotator_change"):
+            scene_controller.register_on_rotator_change(self.request_publish)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -195,6 +264,12 @@ class AutopilotV2Controller(QObject):
     @pyqtSlot(int, dict)
     def _on_canal_status_changed(self, canal_id: int, status: dict) -> None:
         """Cada cambio relevante en un canal reagenda el publish."""
+        self.request_publish()
+
+    def request_publish(self) -> None:
+        """Agenda un publish con debouncing. Hook publico para el
+        SceneController (via register_on_rotator_change) o cualquier
+        otro componente que quiera forzar republicacion."""
         if not self._enabled:
             return
         # Restart single-shot: colapsa rafagas (apply + start en el mismo
@@ -240,7 +315,8 @@ class AutopilotV2Controller(QObject):
         if not self._ensure_script_detected():
             return
         try:
-            canales = collect_canales_payload(self._canal_ctrl)
+            canales = collect_canales_payload(
+                self._canal_ctrl, self._scene_ctrl)
         except Exception as e:
             log.warning("collect_canales_payload fallo: %s", e)
             return

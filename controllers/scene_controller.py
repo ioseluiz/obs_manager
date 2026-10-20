@@ -17,10 +17,15 @@ class SceneController:
         self.obs_client = obs_client
         self.settings_model = settings_model
         self.calendar_controller = calendar_controller
-        
+
         self.scenes_list = []
         self.current_index = 0
         self.is_paused = False
+
+        # Callbacks externos que quieren ser avisados cuando el rotador global
+        # cambia de estado (p. ej. AutopilotV2Controller para republicar al Lua).
+        # Lista en vez de senal Qt porque esta clase es QObject-plana.
+        self._on_rotator_change_cbs: list = []
 
         # NUEVAS VARIABLES PARA EL CONTEO REGRESIVO
         self.time_left = 0
@@ -692,6 +697,22 @@ class SceneController:
         date_str = f"{dias[now.weekday()]}, {now.day} de {meses[now.month-1]} de {now.year}"
         self.view.lbl_date.setText(date_str)
 
+    def register_on_rotator_change(self, cb) -> None:
+        """Registra un callback invocado cada vez que el rotador global
+        cambia de estado (start/stop/pause/resume/rotate). El callback no
+        recibe argumentos; el consumidor debe leer el estado del
+        controller si lo necesita."""
+        self._on_rotator_change_cbs.append(cb)
+
+    def _notify_rotator_change(self) -> None:
+        """Avisa a todos los callbacks registrados. Nunca propaga
+        excepciones — un fallo en un callback no debe romper el rotador."""
+        for cb in self._on_rotator_change_cbs:
+            try:
+                cb()
+            except Exception as e:
+                log.debug("on_rotator_change cb fallo: %s", e)
+
     def start_rotation(self):
         log.info("start_rotation invocado (scenes=%d, obs_conn=%s)",
                  len(self.scenes_list), bool(self.obs_client.client))
@@ -720,6 +741,7 @@ class SceneController:
         self.view.lbl_status.setText("Estado: Detenido")
         self.view.lbl_status.setStyleSheet("font-weight: bold; color: #DC3545;")
         self.view.highlight_active_scene(None)
+        self._notify_rotator_change()
 
     def toggle_pause(self):
         if not self.view.btn_pause.isEnabled():
@@ -742,6 +764,7 @@ class SceneController:
         self.view.lbl_status.setStyleSheet("font-weight: bold; color: #FD7E14;")
         log.info("Rotador pausado en '%s' (%ds restantes)",
                  self.active_scene_name, self.time_left)
+        self._notify_rotator_change()
 
     def _resume_rotation(self):
         """Reanuda el countdown desde donde quedó."""
@@ -758,6 +781,7 @@ class SceneController:
                 break
         self.update_status_label()
         log.info("Rotador reanudado en '%s'", self.active_scene_name)
+        self._notify_rotator_change()
 
     def skip_next(self):
         if not self.timer.isActive() and not self.is_paused:
@@ -883,6 +907,7 @@ class SceneController:
             # Ahora el timer "hace tick" cada 1000 ms (1 segundo)
             self.timer.start(1000)
             # current_index ya fue avanzado por _pick_next_active_scene
+            self._notify_rotator_change()
         else:
             self.stop_rotation()
             QMessageBox.critical(self.view, "Error", f"No se pudo cambiar a '{scene['name']}'.")
