@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor, QPainter, QPixmap
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from views.theme import COLORS, SPACING
 from views.theme.icons import icon as load_icon
@@ -25,7 +25,7 @@ _VARIANT_BG = {
     "orange": "#FFE9D6",
 }
 _VARIANT_FG = {
-    "blue": COLORS["accent_primary"],
+    "blue": COLORS["brand_navy"],      # Azul marino corporativo
     "red":  COLORS["brand_red"],
     "green": COLORS["state_success"],
     "orange": COLORS["state_warning"],
@@ -67,7 +67,7 @@ def _circle_badge(icon_name: str, variant: str, size: int = 56) -> QLabel:
     return lbl
 
 
-class KpiCard(QFrame):
+class KpiCard(QWidget):
     def __init__(self, icon_name: str, title: str, value: str = "0",
                  subtitle: str = "", variant: str = "blue", parent=None):
         super().__init__(parent)
@@ -75,7 +75,7 @@ class KpiCard(QFrame):
         self.setStyleSheet(
             f"KpiCard {{ background: {COLORS['bg_panel']}; "
             f"border: 1px solid {COLORS['border_default']}; "
-            f"border-radius: 8px; }}"
+            f"border-radius: 10px; }}"
         )
         self.setMinimumHeight(100)
 

@@ -8,11 +8,12 @@ live via `core/preview_worker.py` entran en una fase posterior.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QStackedLayout, QVBoxLayout, QWidget
 
 from views.theme import COLORS, SPACING
+from views.theme.icons import icon as load_icon
 
 
 def _gradient_pixmap(w: int, h: int, c1: str, c2: str) -> QPixmap:
@@ -27,8 +28,8 @@ def _gradient_pixmap(w: int, h: int, c1: str, c2: str) -> QPixmap:
     return pm
 
 
-class ChannelPreviewCard(QFrame):
-    PREVIEW_HEIGHT = 100
+class ChannelPreviewCard(QWidget):
+    PREVIEW_HEIGHT = 110
 
     def __init__(self, name: str, scene_name: str = "—",
                  is_live: bool = False, parent: QWidget | None = None):
@@ -38,7 +39,7 @@ class ChannelPreviewCard(QFrame):
         self.setStyleSheet(
             f"ChannelPreviewCard {{ background: {COLORS['bg_panel']}; "
             f"border: 1px solid {COLORS['border_default']}; "
-            f"border-radius: 8px; }}"
+            f"border-radius: 10px; }}"
         )
         self.setMinimumWidth(220)
 
@@ -47,13 +48,12 @@ class ChannelPreviewCard(QFrame):
                                 SPACING["sm"], SPACING["md"])
         col.setSpacing(SPACING["sm"])
 
-        self._preview = QLabel()
-        self._preview.setFixedHeight(self.PREVIEW_HEIGHT)
-        self._preview.setStyleSheet(
-            f"background: transparent; border-radius: 6px;"
-        )
-        self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._refresh_preview_pixmap()
+        # Area de preview — stackea el degradado de fondo con un overlay
+        # que lleva el icono + texto "Sin preview" para que la card no
+        # luzca vacia mientras no haya thumbnail live. Las fases
+        # posteriores reemplazan el pixmap de fondo por la miniatura
+        # real sin tocar el overlay (solo cambia la fuente del preview).
+        self._preview = self._build_preview_block()
         col.addWidget(self._preview)
 
         # Fila con nombre canal + chip En vivo.
@@ -79,13 +79,48 @@ class ChannelPreviewCard(QFrame):
         self.lbl_scene.setWordWrap(True)
         col.addWidget(self.lbl_scene)
 
-    def _refresh_preview_pixmap(self):
-        # Placeholder: degradado de la paleta corporativa.
+    def _build_preview_block(self) -> QWidget:
+        container = QWidget()
+        container.setFixedHeight(self.PREVIEW_HEIGHT)
+        container.setStyleSheet("background: transparent;")
+
+        # Fondo degradado — brand_navy → brand_navy_dark con setStyleSheet
+        # para que respete el border-radius del contenedor padre.
+        container.setAutoFillBackground(False)
+        bg = QLabel(container)
+        bg.setGeometry(0, 0, 2000, self.PREVIEW_HEIGHT)
         pm = _gradient_pixmap(
-            300, self.PREVIEW_HEIGHT,
+            600, self.PREVIEW_HEIGHT,
             COLORS["brand_navy"], COLORS["brand_navy_dark"],
         )
-        self._preview.setPixmap(pm)
+        bg.setPixmap(pm)
+        bg.setScaledContents(True)
+        bg.setStyleSheet(
+            "background: transparent; border-radius: 6px;"
+        )
+
+        overlay = QVBoxLayout(container)
+        overlay.setContentsMargins(0, 0, 0, 0)
+        overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay.setSpacing(2)
+
+        icon_label = QLabel(container)
+        icon_label.setPixmap(
+            load_icon("app_tv", color="#FFFFFF").pixmap(QSize(36, 36))
+        )
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setStyleSheet("background: transparent;")
+        overlay.addWidget(icon_label)
+
+        hint = QLabel("Sin preview disponible", container)
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint.setStyleSheet(
+            "background: transparent; color: rgba(255,255,255,200); "
+            "font-size: 10px; letter-spacing: 1px;"
+        )
+        overlay.addWidget(hint)
+
+        return container
 
     def _style_chip(self, is_live: bool) -> None:
         if is_live:

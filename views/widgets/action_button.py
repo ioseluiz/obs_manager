@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
@@ -21,29 +20,32 @@ from views.theme import COLORS, SPACING
 from views.theme.icons import icon as load_icon
 
 
+# Paleta corporativa alineada al mock: primary usa el navy del Canal
+# (no el azul moderno #0D6EFD que compite visualmente con el sidebar),
+# danger usa el brand_red del Canal (no el #DC3545 generico).
 _VARIANTS = {
     "primary": {
-        "bg": COLORS["accent_primary"],
-        "hover": COLORS["accent_primary_hover"],
+        "bg": COLORS["brand_navy"],
+        "hover": "#164973",            # navy + 10%
         "fg": COLORS["text_inverse"],
-        "sub": "#D9E7FF",
+        "sub": "#B8CCE3",
     },
     "danger": {
-        "bg": COLORS["state_danger"],
-        "hover": COLORS["state_danger_hover"],
+        "bg": COLORS["brand_red"],
+        "hover": "#A3091F",            # brand_red oscurecido
         "fg": COLORS["text_inverse"],
-        "sub": "#FBD5DB",
+        "sub": "#F0B7BF",
     },
     "neutral": {
         "bg": COLORS["bg_panel"],
-        "hover": COLORS["bg_muted"],
+        "hover": "#F1F3F5",
         "fg": COLORS["text_primary"],
         "sub": COLORS["text_muted"],
     },
 }
 
 
-class ActionButton(QFrame):
+class ActionButton(QWidget):
     clicked = pyqtSignal()
 
     def __init__(self, icon_name: str, title: str, subtitle: str,
@@ -92,13 +94,15 @@ class ActionButton(QFrame):
     def _apply_stylesheet(self, hover: bool) -> None:
         v = _VARIANTS[self._variant]
         bg = v["hover"] if hover else v["bg"]
-        border = (
-            f"border: 1px solid {COLORS['border_default']};"
-            if self._variant == "neutral" else "border: none;"
-        )
+        if self._variant == "neutral":
+            border = f"border: 1px solid {COLORS['border_default']};"
+        else:
+            # Explicit border-width 0 — algunos engines combinan reglas
+            # con el QSS global de QWidget si solo decimos "border: none;".
+            border = "border-width: 0px; border-style: none;"
         self.setStyleSheet(
-            f"ActionButton {{ background: {bg}; border-radius: 8px; "
-            f"{border} }}"
+            f"ActionButton {{ background: {bg}; "
+            f"border-radius: 10px; {border} }}"
         )
 
     # Eventos: hover + click.
