@@ -316,6 +316,7 @@ class CanalController(QObject):
 
         result = "Canal aplicado en OBS."
         self.canal_applied.emit(canal_id, True, result)
+        self._emit_status(canal_id)
         return True, result
 
     def remove_canal_from_obs(self, canal_id: int) -> tuple[bool, str]:
@@ -341,6 +342,7 @@ class CanalController(QObject):
 
         self._rotators.pop(canal_id, None)
         self.canal_removed.emit(canal_id, True, msg)
+        self._emit_status(canal_id)
         return True, msg
 
     def set_habilitado(self, canal_id: int, habilitado: bool) -> tuple[bool, str]:
@@ -365,6 +367,7 @@ class CanalController(QObject):
             self.start_rotator(canal_id)
         else:
             self.stop_rotator(canal_id)
+        self._emit_status(canal_id)
         return True, "OK"
 
     # ------------------------------------------------------------------
@@ -507,6 +510,7 @@ class CanalController(QObject):
             self._hide_all_items(state)
             self._show_placeholder(state)
             self._ensure_timer(state)
+            self._emit_status(state.canal_id)
             return
 
         now = self._now()
@@ -532,6 +536,7 @@ class CanalController(QObject):
             state.active_index = -1
             self._ensure_timer(state)
             state.timer.start(_RETRY_MS_WHEN_NO_ACTIVE)
+            self._emit_status(state.canal_id)
             return
 
         # Mostrar el item encontrado
@@ -541,6 +546,7 @@ class CanalController(QObject):
         state.placeholder_visible = False
         self._ensure_timer(state)
         state.timer.start(max(1, int(entry.duration_seg)) * 1000)
+        self._emit_status(state.canal_id)
 
     def _ensure_timer(self, state: _RotatorState) -> None:
         if state.timer is None:
@@ -602,6 +608,20 @@ class CanalController(QObject):
     # ------------------------------------------------------------------
     # Consulta / debug
     # ------------------------------------------------------------------
+
+    def _emit_status(self, canal_id: int) -> None:
+        """Emite canal_status_changed con el status actual del canal.
+
+        Hook para que el AutopilotV2Controller republique el payload v2
+        al Lua residente en OBS. Nunca propaga excepciones — un fallo
+        aqui no debe romper la rotacion.
+        """
+        try:
+            status = self.get_status(canal_id)
+        except Exception as e:
+            log.debug("get_status para emit fallo: %s", e)
+            status = {"canal_id": canal_id}
+        self.canal_status_changed.emit(canal_id, status)
 
     def get_status(self, canal_id: int) -> dict[str, Any]:
         """Estado en memoria del canal — para UI o tests."""

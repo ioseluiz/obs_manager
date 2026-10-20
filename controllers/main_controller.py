@@ -23,6 +23,9 @@ from models.canal_model import CanalModel
 from views.produccion_view import ProduccionView
 from controllers.canal_controller import CanalController
 
+from core.autopilot_client import AutopilotClientV2
+from controllers.autopilot_v2_controller import AutopilotV2Controller
+
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
 
 
@@ -92,6 +95,15 @@ class MainController:
             self.scene_controller, self.toggle_recording,
         )
         self.main_window.tabs.addTab(self.produccion_view, "Producción")
+
+        # 3.6 Autopilot v2 (Fase C del port): mantiene la rotacion de los
+        # canales multi-salida activa aunque la app se cierre. Requiere
+        # que el usuario haya instalado `autopilot_v2.lua` en OBS; si no
+        # esta, el controller se queda inactivo sin romper nada.
+        self.autopilot_v2_client = AutopilotClientV2(self.obs_client)
+        self.autopilot_v2 = AutopilotV2Controller(
+            self.autopilot_v2_client, self.canal_controller,
+        )
 
         # 3.5 Pestaña de Logs
         self.logs_view = LogsView()
@@ -209,6 +221,12 @@ class MainController:
         self._auto_apply_canales()
         # Arrancar watchdog de encoding_lag (Fase 2f)
         self._start_lag_watchdog()
+        # Arrancar Autopilot v2 (Fase C del port). Idempotente: si el
+        # script Lua no esta instalado se queda inactivo.
+        try:
+            self.autopilot_v2.start()
+        except Exception as e:
+            log.warning("Autopilot v2 no arranco en connect: %s", e)
 
     def _sync_recording_state(self):
         status = self.obs_client.get_recording_status()
@@ -236,6 +254,13 @@ class MainController:
         self.main_window.clear_canvas_size()
         # Detener el watchdog de lag (Fase 2f) — sin OBS no hay stats.
         self._stop_lag_watchdog()
+        # Detener Autopilot v2 (Fase C del port) — sin OBS no se puede
+        # publicar. El script Lua del lado del servidor hara su propio
+        # timeout de heartbeat (30s) y tomara control.
+        try:
+            self.autopilot_v2.stop()
+        except Exception as e:
+            log.debug("Autopilot v2 stop en caida fallo: %s", e)
         # El botón Transmitir de Canal Principal se deshabilita hasta reconectar.
         if hasattr(self, "produccion_view") and self.produccion_view is not None:
             self.produccion_view.set_transmit_principal_enabled(False)
@@ -269,6 +294,12 @@ class MainController:
         self._auto_apply_canales()
         # Reiniciar watchdog de encoding_lag (Fase 2f) tras reconexión.
         self._start_lag_watchdog()
+        # Re-arrancar Autopilot v2 (Fase C del port). El start() es
+        # idempotente y re-detecta si el script Lua esta instalado.
+        try:
+            self.autopilot_v2.start()
+        except Exception as e:
+            log.warning("Autopilot v2 no arranco en reconexion: %s", e)
         # Reanudar rotador si estaba activo antes de la caída
         if self._rotator_was_running:
             self._rotator_was_running = False
@@ -809,6 +840,13 @@ class MainController:
             self._stop_lag_watchdog()
         except Exception as e:
             log.warning("Error deteniendo lag watchdog: %s", e)
+        # Publicar handoff final al Lua v2 ANTES de parar el canal_controller
+        # — asi el script retoma la rotacion con el active_index y
+        # seconds_remaining que la app estaba manejando (Fase C).
+        try:
+            self.autopilot_v2.stop(publish_handoff=True)
+        except Exception as e:
+            log.warning("Error en shutdown de Autopilot v2: %s", e)
         try:
             self.canal_controller.shutdown_keeping_filters()
         except Exception as e:
