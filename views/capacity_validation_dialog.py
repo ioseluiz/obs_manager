@@ -49,7 +49,7 @@ class CapacityValidationDialog(QDialog):
 
         subtitle = QLabel(r.reason)
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #495057;")
+        subtitle.setProperty("role", "status-muted")
         root.addWidget(subtitle)
 
         # Tabla comparativa

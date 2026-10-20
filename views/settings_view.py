@@ -83,7 +83,7 @@ class SettingsDialog(QDialog):
 
         self.lbl_cal_status = QLabel("Sin datos de calibración.")
         self.lbl_cal_status.setWordWrap(True)
-        self.lbl_cal_status.setStyleSheet("color: #495057;")
+        self.lbl_cal_status.setProperty("role", "status-muted")
         cal_layout.addWidget(self.lbl_cal_status)
 
         cal_row = QHBoxLayout()
@@ -108,7 +108,7 @@ class SettingsDialog(QDialog):
             "se cierra. Requiere cargar un script Lua una sola vez en OBS."
         )
         self.lbl_ap_v2_info.setWordWrap(True)
-        self.lbl_ap_v2_info.setStyleSheet("color: #495057;")
+        self.lbl_ap_v2_info.setProperty("role", "status-muted")
         ap_layout.addWidget(self.lbl_ap_v2_info)
 
         ap_row = QHBoxLayout()
@@ -129,7 +129,7 @@ class SettingsDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar y Conectar")
         self.btn_cancel = QPushButton("Cancelar")
-        self.btn_cancel.setStyleSheet("background-color: #6C757D;")
+        self.btn_cancel.setProperty("role", "muted")
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addWidget(self.btn_save)
         layout.addLayout(btn_layout)
@@ -154,7 +154,7 @@ class SettingsDialog(QDialog):
     def set_test_pending(self):
         """Estado 'Probando…' mientras el probe worker corre."""
         self.btn_test.setEnabled(False)
-        self.lbl_test_status.setStyleSheet("color: #6C757D;")
+        self.lbl_test_status.setProperty("role", "status-muted")
         self.lbl_test_status.setText("Probando…")
 
     def set_test_result(self, success: bool, message: str):
