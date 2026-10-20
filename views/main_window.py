@@ -85,6 +85,15 @@ class MainWindow(QMainWindow):
         self.btn_import.setToolTip("Importar escenas desde un archivo JSON")
         self.toolbar.addWidget(self.btn_import)
 
+        # Fase 1 UI redesign: reemplazar emojis Unicode por iconos
+        # corporativos. apply_icon scrubbea el emoji del texto y setea el
+        # QIcon, asi los botones funcionan igual en modo normal y compacto.
+        from views.theme.icons import apply_icon
+        apply_icon(self.btn_settings, "⚙")
+        apply_icon(self.btn_connect, "🔌")
+        apply_icon(self.btn_export, "📤")
+        apply_icon(self.btn_import, "📥")
+
         # Botón Transmitir global removido en Fase R (R-4): la transmisión
         # ahora se controla por canal desde la pestaña Producción — Canal
         # Principal tiene su propio Transmit dentro de su detail panel.

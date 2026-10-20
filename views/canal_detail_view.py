@@ -178,6 +178,23 @@ class CanalDetailView(QWidget):
         item_toolbar.addStretch(1)
         playlist_layout.addLayout(item_toolbar)
 
+        # Fase 1 UI redesign: iconos corporativos en el toolbar.
+        from views.theme.icons import apply_icon
+        apply_icon(self.btn_transmit, "▶")
+        apply_icon(self.btn_play, "▶", size=20)
+        apply_icon(self.btn_prev, "⏮", size=20)
+        apply_icon(self.btn_pause, "⏸", size=20)
+        apply_icon(self.btn_next, "⏭", size=20)
+        apply_icon(self.btn_stop, "⏹", size=20)
+        apply_icon(self.btn_apply, "actualizar")
+        apply_icon(self.btn_diagnose, "informacion")
+        apply_icon(self.btn_preview, "imagen_vista_previa")
+        apply_icon(self.btn_add_item, "➕")
+        apply_icon(self.btn_remove_item, "eliminar")
+        apply_icon(self.btn_up_item, "subir")
+        apply_icon(self.btn_down_item, "bajar")
+        apply_icon(self.btn_edit_item, "✏")
+
         self.tbl_items = QTableWidget(0, len(_ITEM_HEADERS))
         self.tbl_items.setHorizontalHeaderLabels(_ITEM_HEADERS)
         self.tbl_items.setAlternatingRowColors(True)

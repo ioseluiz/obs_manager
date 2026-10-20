@@ -137,6 +137,17 @@ class CanalPrincipalDetailView(QWidget):
         toolbar.addStretch(1)
         root.addLayout(toolbar)
 
+        # Fase 1 UI redesign: iconos corporativos para los glifos de
+        # rotador. prev/next/stop usan QStyle.StandardPixmap como
+        # fallback nativo (no hay asset corporativo para esos).
+        from views.theme.icons import apply_icon
+        apply_icon(self.btn_transmit, "▶")
+        apply_icon(self.btn_play, "▶", size=20)
+        apply_icon(self.btn_prev, "⏮", size=20)
+        apply_icon(self.btn_pause, "⏸", size=20)
+        apply_icon(self.btn_next, "⏭", size=20)
+        apply_icon(self.btn_stop, "⏹", size=20)
+
         # Info banner
         info_frame = QFrame()
         info_frame.setFrameShape(QFrame.Shape.StyledPanel)
