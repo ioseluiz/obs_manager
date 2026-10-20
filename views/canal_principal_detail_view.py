@@ -141,12 +141,13 @@ class CanalPrincipalDetailView(QWidget):
         # rotador. prev/next/stop usan QStyle.StandardPixmap como
         # fallback nativo (no hay asset corporativo para esos).
         from views.theme.icons import apply_icon
-        apply_icon(self.btn_transmit, "▶")
-        apply_icon(self.btn_play, "▶", size=20)
-        apply_icon(self.btn_prev, "⏮", size=20)
-        apply_icon(self.btn_pause, "⏸", size=20)
-        apply_icon(self.btn_next, "⏭", size=20)
-        apply_icon(self.btn_stop, "⏹", size=20)
+        # Tintados en blanco: el fondo de los botones es azul primary.
+        apply_icon(self.btn_transmit, "▶", color="#FFFFFF")
+        apply_icon(self.btn_play, "▶", color="#FFFFFF", size=20)
+        apply_icon(self.btn_prev, "⏮", size=20)   # fallback nativo
+        apply_icon(self.btn_pause, "⏸", color="#FFFFFF", size=20)
+        apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
+        apply_icon(self.btn_stop, "⏹", size=20)   # fallback nativo
 
         # Info banner
         info_frame = QFrame()

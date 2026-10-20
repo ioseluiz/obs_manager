@@ -179,21 +179,24 @@ class CanalDetailView(QWidget):
         playlist_layout.addLayout(item_toolbar)
 
         # Fase 1 UI redesign: iconos corporativos en el toolbar.
+        # Tintados en blanco: todos los botones tienen fondo coloreado
+        # (azul primary o rol success/danger). PNGs originales son azul
+        # marino → sin tinting quedan ilegibles.
         from views.theme.icons import apply_icon
-        apply_icon(self.btn_transmit, "▶")
-        apply_icon(self.btn_play, "▶", size=20)
-        apply_icon(self.btn_prev, "⏮", size=20)
-        apply_icon(self.btn_pause, "⏸", size=20)
-        apply_icon(self.btn_next, "⏭", size=20)
-        apply_icon(self.btn_stop, "⏹", size=20)
-        apply_icon(self.btn_apply, "actualizar")
-        apply_icon(self.btn_diagnose, "informacion")
-        apply_icon(self.btn_preview, "imagen_vista_previa")
-        apply_icon(self.btn_add_item, "➕")
-        apply_icon(self.btn_remove_item, "eliminar")
-        apply_icon(self.btn_up_item, "subir")
-        apply_icon(self.btn_down_item, "bajar")
-        apply_icon(self.btn_edit_item, "✏")
+        apply_icon(self.btn_transmit, "▶", color="#FFFFFF")
+        apply_icon(self.btn_play, "▶", color="#FFFFFF", size=20)
+        apply_icon(self.btn_prev, "⏮", size=20)   # fallback nativo
+        apply_icon(self.btn_pause, "⏸", color="#FFFFFF", size=20)
+        apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
+        apply_icon(self.btn_stop, "⏹", size=20)   # fallback nativo
+        apply_icon(self.btn_apply, "actualizar", color="#FFFFFF")
+        apply_icon(self.btn_diagnose, "informacion", color="#FFFFFF")
+        apply_icon(self.btn_preview, "imagen_vista_previa", color="#FFFFFF")
+        apply_icon(self.btn_add_item, "➕", color="#FFFFFF")
+        apply_icon(self.btn_remove_item, "eliminar", color="#FFFFFF")
+        apply_icon(self.btn_up_item, "subir", color="#FFFFFF")
+        apply_icon(self.btn_down_item, "bajar", color="#FFFFFF")
+        apply_icon(self.btn_edit_item, "✏", color="#FFFFFF")
 
         self.tbl_items = QTableWidget(0, len(_ITEM_HEADERS))
         self.tbl_items.setHorizontalHeaderLabels(_ITEM_HEADERS)

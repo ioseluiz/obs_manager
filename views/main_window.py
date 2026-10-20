@@ -89,10 +89,13 @@ class MainWindow(QMainWindow):
         # corporativos. apply_icon scrubbea el emoji del texto y setea el
         # QIcon, asi los botones funcionan igual en modo normal y compacto.
         from views.theme.icons import apply_icon
-        apply_icon(self.btn_settings, "⚙")
-        apply_icon(self.btn_connect, "🔌")
-        apply_icon(self.btn_export, "📤")
-        apply_icon(self.btn_import, "📥")
+        # Iconos tintados en blanco: los botones de toolbar tienen fondo
+        # azul primary y los PNG originales son azul marino → ilegible
+        # sin tinting.
+        apply_icon(self.btn_settings, "⚙", color="#FFFFFF")
+        apply_icon(self.btn_connect, "🔌", color="#FFFFFF")
+        apply_icon(self.btn_export, "📤", color="#FFFFFF")
+        apply_icon(self.btn_import, "📥", color="#FFFFFF")
 
         # Botón Transmitir global removido en Fase R (R-4): la transmisión
         # ahora se controla por canal desde la pestaña Producción — Canal

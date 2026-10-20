@@ -156,19 +156,21 @@ class SceneView(QWidget):
         action_row.addWidget(self.btn_delete)
 
         # Fase 1 UI redesign: iconos corporativos reemplazan los emojis.
+        # Tintados en blanco: todos los botones tienen fondo coloreado
+        # (verde success, azul primary, rojo danger, morado, gris muted).
         from views.theme.icons import apply_icon
-        apply_icon(self.btn_start, "▶")
-        apply_icon(self.btn_prev, "⏮", size=20)
-        apply_icon(self.btn_pause, "⏸")
-        apply_icon(self.btn_next, "⏭", size=20)
-        apply_icon(self.btn_stop, "⏹")
-        apply_icon(self.btn_refresh_previews, "🔄", size=18)
-        apply_icon(self.btn_add, "➕")
-        apply_icon(self.btn_edit, "✏")
-        apply_icon(self.btn_delete, "🗑")
-        apply_icon(self.btn_duplicate, "documento", size=18)
-        apply_icon(self.btn_move_up, "subir", size=18)
-        apply_icon(self.btn_move_down, "bajar", size=18)
+        apply_icon(self.btn_start, "▶", color="#FFFFFF")
+        apply_icon(self.btn_prev, "⏮", size=20)   # fallback nativo
+        apply_icon(self.btn_pause, "⏸", color="#FFFFFF")
+        apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
+        apply_icon(self.btn_stop, "⏹")             # fallback nativo
+        apply_icon(self.btn_refresh_previews, "🔄", color="#FFFFFF", size=18)
+        apply_icon(self.btn_add, "➕", color="#FFFFFF")
+        apply_icon(self.btn_edit, "✏", color="#FFFFFF")
+        apply_icon(self.btn_delete, "🗑", color="#FFFFFF")
+        apply_icon(self.btn_duplicate, "documento", color="#FFFFFF", size=18)
+        apply_icon(self.btn_move_up, "subir", color="#FFFFFF", size=18)
+        apply_icon(self.btn_move_down, "bajar", color="#FFFFFF", size=18)
         # Separador visual entre acciones destructivas/creación y los iconos
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
