@@ -71,7 +71,7 @@ class CalendarView(QWidget):
         )
 
         self.btn_build_scene = QPushButton("🛠 Construir Escena en OBS")
-        self.btn_build_scene.setStyleSheet("background-color: #198754;")
+        self.btn_build_scene.setProperty("role", "success")
 
         build_layout.addRow("Nombre de la Escena:", self.input_scene_name)
         build_layout.addRow("Nombre del Marcador:", self.input_source_name)
@@ -204,7 +204,7 @@ class CalendarView(QWidget):
         read_row.addWidget(self.combo_read_target)
 
         self.btn_read_obs = QPushButton("📥 Leer del marcador OBS")
-        self.btn_read_obs.setStyleSheet("background-color: #6610F2;")
+        self.btn_read_obs.setProperty("role", "primary")
         self.btn_read_obs.setToolTip(
             "Lee la posición y escala actuales del marcador en OBS y las convierte "
             "en valores de calibración para el día indicado."
@@ -217,10 +217,10 @@ class CalendarView(QWidget):
         # --- BOTONES DE ACCIÓN ---
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar Calibración")
-        self.btn_save.setStyleSheet("background-color: #6C757D;")
+        self.btn_save.setProperty("role", "muted")
         self.btn_test = QPushButton("🎯 Mover Círculo a HOY")
         self.btn_simulate = QPushButton("🎬 Iniciar Simulación...")
-        self.btn_simulate.setStyleSheet("background-color: #0D6EFD;")
+        self.btn_simulate.setProperty("role", "primary")
 
         # Export/Import de la calibración a JSON — para poder llevar la
         # configuración del calendario a otra máquina o hacer respaldo.
