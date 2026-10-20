@@ -83,18 +83,18 @@ class CanalPrincipalDetailView(QWidget):
         self.lbl_url = QLabel(
             "→ Recording global de OBS (Custom Output FFmpeg → UDP)"
         )
-        self.lbl_url.setStyleSheet("color: #495057;")
+        self.lbl_url.setProperty("role", "status-muted")
 
         self.lbl_status = QLabel("● No transmitiendo")
-        self.lbl_status.setStyleSheet("font-weight: bold; color: #6C757D;")
+        self.lbl_status.setProperty("role", "status-muted")
 
         self.lbl_timecode = QLabel("")
-        self.lbl_timecode.setStyleSheet("color: #495057; font-family: monospace;")
+        self.lbl_timecode.setStyleSheet("font-family: monospace;")
 
         # Estado del rotador global (running/paused/stopped + escena activa)
         # — se actualiza por poll del SceneController cada 500 ms.
         self.lbl_rotator = QLabel("Rotador: Detenido")
-        self.lbl_rotator.setStyleSheet("color: #495057; font-weight: bold;")
+        self.lbl_rotator.setProperty("role", "status-muted")
 
         header_layout.addWidget(self.lbl_nombre)
         header_layout.addWidget(self.lbl_url)

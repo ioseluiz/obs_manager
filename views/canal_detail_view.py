@@ -84,11 +84,11 @@ class CanalDetailView(QWidget):
         self.lbl_nombre.setFont(f)
 
         self.lbl_url = QLabel("—")
-        self.lbl_url.setStyleSheet("color: #495057;")
+        self.lbl_url.setProperty("role", "status-muted")
         self.lbl_status = QLabel("—")
-        self.lbl_status.setStyleSheet("font-weight: bold;")
+        self.lbl_status.setProperty("role", "status-muted")
         self.lbl_active = QLabel("Item activo: —")
-        self.lbl_active.setStyleSheet("color: #495057;")
+        self.lbl_active.setProperty("role", "status-muted")
 
         header_layout.addWidget(self.lbl_nombre)
         header_layout.addWidget(self.lbl_url)
