@@ -99,6 +99,7 @@ class MainController:
         self.canal_model = CanalModel()
         self.canal_controller = CanalController(
             self.canal_model, self.scene_model, self.obs_client,
+            calendar_controller=self.calendar_controller,
         )
         self.produccion_view = ProduccionView(
             self.canal_model, self.scene_model, self.canal_controller,

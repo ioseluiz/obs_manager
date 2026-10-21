@@ -65,6 +65,10 @@ class _RotatorState:
     scene_name: str
     # canal_item_id -> obs sceneItemId (para SetSceneItemEnabled)
     item_to_scene_item: dict[int, int] = field(default_factory=dict)
+    # canal_item_id -> dict secuencia completa (para hooks por tipo:
+    # auto-refresh URL, video offset, calendar move_circle_to_today).
+    # Se popula en apply_canal junto con item_to_scene_item.
+    item_to_seq: dict[int, dict[str, Any]] = field(default_factory=dict)
     playlist: list[_PlaylistEntry] = field(default_factory=list)
     active_index: int = -1
     timer: QTimer | None = None
@@ -78,6 +82,12 @@ class _RotatorState:
     placeholder_scene_item_id: int | None = None
     # True si el placeholder es lo que está visible ahora mismo.
     placeholder_visible: bool = False
+    # Auto-refresh del input URL activo (Fase 1.F1). Cuando el item
+    # activo es tipo="url" + refresh_interval_seg>0, armamos un QTimer
+    # que dispara OBSClient.refresh_browser_source cada N segundos.
+    refresh_timer: QTimer | None = None
+    # Nombre del input URL activo (consumido por refresh_timer).
+    active_input_name: str | None = None
 
 
 class CanalController(QObject):
@@ -94,11 +104,17 @@ class CanalController(QObject):
     canal_removed = pyqtSignal(int, bool, str)
     canal_status_changed = pyqtSignal(int, dict)    # canal_id, status dict
 
-    def __init__(self, canal_model, scene_model, obs_client, parent=None):
+    def __init__(self, canal_model, scene_model, obs_client,
+                 calendar_controller=None, parent=None):
         super().__init__(parent)
         self.canal_model = canal_model
         self.scene_model = scene_model
         self.obs_client = obs_client
+        # Opcional — si se pasa, al activar un item cuya secuencia es la
+        # escena de calendario (cal_scene de settings) el controller
+        # dispara move_circle_to_today(). Si es None, F3 se desactiva
+        # silenciosamente.
+        self.calendar_controller = calendar_controller
         self._rotators: dict[int, _RotatorState] = {}
         # Override para tests: función que devuelve el "now" que consulta
         # el rotador al filtrar por schedule. En runtime = datetime.now.
@@ -135,7 +151,9 @@ class CanalController(QObject):
 
         Devuelve una lista con, por item:
             canal_item_id, secuencia_nombre, duration_seg,
-            active_days, active_time_start, active_time_end
+            active_days, active_time_start, active_time_end,
+            seq_full  (dict con todos los campos de la secuencia — usado
+                       por hooks por tipo en _show_item)
         Items que referencian secuencias inexistentes se saltan con warning.
         """
         items = self.canal_model.get_items(canal_id)
@@ -158,6 +176,9 @@ class CanalController(QObject):
                 "active_days": int(seq.get("active_days") or 127),
                 "active_time_start": seq.get("active_time_start"),
                 "active_time_end": seq.get("active_time_end"),
+                # Dict completo de la secuencia — para que _show_item pueda
+                # decidir hooks por tipo (URL refresh, video offset, calendar).
+                "seq_full": seq,
             })
         return result
 
@@ -293,6 +314,12 @@ class CanalController(QObject):
             )
             state.scene_name = canal["nombre"]
             state.item_to_scene_item = mapping
+            # F1-F3: cache del dict completo de la secuencia por canal_item_id
+            # para que _show_item pueda despachar hooks por tipo (URL refresh,
+            # video offset, calendar move_circle) sin re-querying la BD.
+            state.item_to_seq = {
+                e["canal_item_id"]: e["seq_full"] for e in effective_items
+            }
             state.playlist = [
                 _PlaylistEntry(
                     item_id=e["canal_item_id"],
@@ -401,6 +428,8 @@ class CanalController(QObject):
         if state.timer is not None:
             state.timer.stop()
             state.timer = None
+        # Fase 1.F1: parar refresh del input URL si estaba corriendo.
+        self._stop_refresh_timer(state)
         state.is_paused = False
         state.remaining_ms = 0
         if not self._connected:
@@ -556,6 +585,8 @@ class CanalController(QObject):
 
     def _hide_current(self, state: _RotatorState) -> None:
         """Oculta el item activo (si había uno) o el placeholder."""
+        # Fase 1.F1: parar auto-refresh del URL del item que se va.
+        self._stop_refresh_timer(state)
         if state.placeholder_visible and state.placeholder_scene_item_id is not None:
             self._set_scene_item(state, state.placeholder_scene_item_id, False)
             state.placeholder_visible = False
@@ -579,6 +610,87 @@ class CanalController(QObject):
         log.info("Canal '%s' → item_id=%d visible (sceneItemId=%d)",
                  state.scene_name, item_id, scene_item)
         self._set_scene_item(state, scene_item, True)
+        # Hooks por tipo de secuencia (Fase 1.F1/F2/F3): auto-refresh URL,
+        # video offset, calendar move_circle_to_today.
+        seq = state.item_to_seq.get(item_id)
+        if seq:
+            self._apply_show_hooks(state, seq)
+
+    # ------------------------------------------------------------------
+    # Fase 1.F1/F2/F3: hooks al mostrar un item nuevo
+    # ------------------------------------------------------------------
+
+    def _apply_show_hooks(self, state: _RotatorState,
+                           seq: dict[str, Any]) -> None:
+        """Despacha acciones adicionales al activar un scene item segun el
+        tipo de secuencia:
+
+        - URL con refresh_interval_seg > 0 → arma QTimer que llama
+          OBSClient.refresh_browser_source periodicamente (F1).
+        - File con video_offset_seg > 0 → set_media_cursor al segundo
+          indicado (F2).
+        - Nombre coincide con settings.cal_scene → mueve el marcador
+          del calendario al dia actual (F3).
+        """
+        tipo = (seq.get("tipo") or "").lower()
+        seq_name = seq.get("name") or ""
+
+        # Siempre parar el refresh del item anterior.
+        self._stop_refresh_timer(state)
+
+        if tipo == "url":
+            interval = int(seq.get("refresh_interval_seg") or 0)
+            if interval > 0 and seq_name:
+                state.active_input_name = f"{seq_name}_Web"
+                self._arm_refresh_timer(state, interval)
+        elif tipo == "file":
+            offset = int(seq.get("video_offset_seg") or 0)
+            if offset > 0 and seq_name:
+                input_name = f"{seq_name}_Contenido"
+                try:
+                    self.obs_client.set_media_cursor(input_name, offset * 1000)
+                except Exception as e:
+                    log.debug("set_media_cursor %s fallo: %s", input_name, e)
+
+        # Calendar move_circle_to_today — se dispara aunque el tipo no
+        # sea url/file; depende solo del nombre de la secuencia.
+        if self.calendar_controller is not None and seq_name:
+            try:
+                cal_scene = (
+                    self.calendar_controller.settings_model.get_settings()
+                    .get("cal_scene")
+                )
+                if cal_scene and seq_name == cal_scene:
+                    self.calendar_controller.move_circle_to_today(
+                        show_messages=False)
+            except Exception as e:
+                log.debug("calendar move_circle fallo: %s", e)
+
+    def _arm_refresh_timer(self, state: _RotatorState,
+                            interval_sec: int) -> None:
+        if state.refresh_timer is None:
+            state.refresh_timer = QTimer(self)
+            state.refresh_timer.timeout.connect(
+                lambda s=state: self._fire_refresh(s)
+            )
+        state.refresh_timer.start(max(1, interval_sec) * 1000)
+
+    def _fire_refresh(self, state: _RotatorState) -> None:
+        name = state.active_input_name
+        if not name or not self._connected:
+            return
+        try:
+            self.obs_client.refresh_browser_source(name)
+        except Exception as e:
+            log.debug("refresh_browser_source %s fallo: %s", name, e)
+
+    def _stop_refresh_timer(self, state: _RotatorState) -> None:
+        if state.refresh_timer is not None:
+            try:
+                state.refresh_timer.stop()
+            except Exception:
+                pass
+        state.active_input_name = None
 
     def _show_placeholder(self, state: _RotatorState) -> None:
         if state.placeholder_scene_item_id is None:
