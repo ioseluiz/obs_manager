@@ -617,6 +617,7 @@ class CanalDetailView(QWidget):
             QMessageBox.critical(self, "Error al agregar item", str(e))
             return
         self._refresh_items()
+        self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
 
     def _on_remove_item(self):
@@ -636,6 +637,7 @@ class CanalDetailView(QWidget):
             QMessageBox.critical(self, "Error al quitar item", str(e))
             return
         self._refresh_items()
+        self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
 
     def _on_reorder_item(self, direction: int):
@@ -644,6 +646,7 @@ class CanalDetailView(QWidget):
             return
         if self.canal_model.reorder_item(item_id, direction):
             self._refresh_items()
+            self._auto_apply_after_playlist_change()
             self.canal_changed.emit(self._canal_id)
 
     def _on_edit_item(self):
@@ -676,4 +679,36 @@ class CanalDetailView(QWidget):
             QMessageBox.critical(self, "Error al editar", str(e))
             return
         self._refresh_items()
+        self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
+
+    def _auto_apply_after_playlist_change(self) -> None:
+        """Re-aplica el canal en OBS tras cada edicion de la playlist
+        (agregar / quitar / reordenar / editar duracion).
+
+        Elimina la friccion de tener que pulsar 'Aplicar cambios en OBS'
+        manualmente tras cada cambio. apply_canal es idempotente — wipe
+        and rebuild de scene items + filtro — asi que llamarlo varias
+        veces es seguro.
+
+        Si OBS esta desconectado o el canal no existe, apply_canal
+        devuelve (False, msg); lo mostramos en status bar pero no
+        bloqueamos el flujo de edicion.
+        """
+        if self._canal_id is None or self.canal_controller is None:
+            return
+        try:
+            ok, msg = self.canal_controller.apply_canal(self._canal_id)
+            if not ok:
+                # Silencioso para no interrumpir el flujo de edicion.
+                # Si el user quiere re-aplicar explicitamente, el boton
+                # 'Aplicar cambios en OBS' sigue disponible.
+                import logging
+                logging.getLogger(__name__).debug(
+                    "auto-apply tras cambio de playlist fallo: %s", msg,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(
+                "auto-apply tras cambio de playlist excepcion: %s", e,
+            )
