@@ -24,10 +24,12 @@ from views.produccion_view import ProduccionView
 from controllers.canal_controller import CanalController
 
 from core.autopilot_client import AutopilotClientV2
+from core.legacy_migrator import migrate_legacy_to_canal, needs_migration
 from controllers.autopilot_v2_controller import AutopilotV2Controller
 from controllers.home_controller import HomeController
 from views.autopilot_install_v2_dialog import AutopilotInstallV2Dialog
 from views.home_view import HomeView
+from views.legacy_migration_dialog import LegacyMigrationDialog
 
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
 
@@ -266,6 +268,10 @@ class MainController:
         self.countdown_controller.refresh_from_obs()
         # Auto-aplicar canales habilitados a OBS (Fase 1e)
         self._auto_apply_canales()
+        # Fase 2 unificacion: ofrecer migrar secuencias legacy a un canal
+        # regular. Non-blocking — si el user omite, se re-ofrece en el
+        # proximo connect; si marca "no volver a preguntar", nunca mas.
+        self._maybe_offer_legacy_migration()
         # Arrancar watchdog de encoding_lag (Fase 2f)
         self._start_lag_watchdog()
         # Fase E del port: si el Lua Autopilot v2 estuvo rotando mientras
@@ -442,6 +448,63 @@ class MainController:
                 "Autopilot v2: %d rotador(es) sincronizados desde el Lua activo",
                 synced,
             )
+
+    def _maybe_offer_legacy_migration(self):
+        """Fase 2 de la unificacion.
+
+        Si hay secuencias en la Biblioteca y el flag
+        LEGACY_MIGRATION_DONE no esta marcado, ofrece al user crear un
+        canal regular que agrupe esas secuencias como items. El dialog
+        tiene 3 salidas:
+
+        - Convertir: ejecuta migrate_legacy_to_canal con la seleccion
+          del user y marca el flag.
+        - Omitir por ahora: cierra sin marcar — vuelve a aparecer en
+          el proximo connect.
+        - No volver a preguntar: marca el flag sin crear canal.
+
+        Nunca interrumpe el flujo de connect — ante cualquier excepcion
+        la migracion se omite silenciosamente.
+        """
+        try:
+            if not needs_migration(self.scene_model, self.settings_model):
+                return
+            scenes = self.scene_model.get_all_scenes() or []
+            dialog = LegacyMigrationDialog(scenes, parent=self.main_window)
+            dialog.exec()
+            decision = dialog.decision
+            if decision == LegacyMigrationDialog.DO_NEVER:
+                self.settings_model.set_flag("LEGACY_MIGRATION_DONE", "true")
+                log.info("Legacy migration: user eligio 'no volver a preguntar'")
+                return
+            if decision != LegacyMigrationDialog.DO_CONVERT:
+                # DO_SKIP: no se marca flag, se re-ofrece la proxima vez.
+                return
+            ok, canal_id, msg = migrate_legacy_to_canal(
+                canal_model=self.canal_model,
+                scene_model=self.scene_model,
+                canal_controller=self.canal_controller,
+                canal_name=dialog.canal_name,
+                udp_url=dialog.udp_url,
+                secuencia_ids=dialog.selected_ids,
+            )
+            if ok:
+                self.settings_model.set_flag("LEGACY_MIGRATION_DONE", "true")
+                log.info("Legacy migration: %s", msg)
+                if hasattr(self, "produccion_view") and self.produccion_view is not None:
+                    self.produccion_view.refresh()
+                QMessageBox.information(
+                    self.main_window, "Migración completada", msg,
+                )
+            else:
+                log.warning("Legacy migration fallo: %s", msg)
+                QMessageBox.warning(
+                    self.main_window, "Migración incompleta",
+                    f"{msg}\n\nEl flag no se marco — se te volvera a "
+                    "preguntar en el proximo arranque.",
+                )
+        except Exception as e:
+            log.warning("Legacy migration excepcion: %s", e)
 
     def _auto_apply_canales(self):
         """Aplica en OBS los canales habilitados del modelo (Fase 1e).
