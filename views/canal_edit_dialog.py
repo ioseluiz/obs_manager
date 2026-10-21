@@ -6,6 +6,30 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QMessageBox, QSpinBox, QVBoxLayout,
 )
 
+from PyQt6.QtGui import QValidator
+
+from core.udp_url_params import compose_url, extract_multicast_params
+
+
+class _OptionalSpinBox(QSpinBox):
+    """QSpinBox donde dejar el campo VACIO equivale al minimo (0 = "sin setear").
+
+    Un QSpinBox normal trata el texto vacio como estado intermedio y al
+    perder el foco revierte al ultimo valor valido -- borrar "32" dejaba
+    "2" y no habia forma de volver a "(sin setear)" salvo teclear 0 o
+    bajar con la flecha. Con esta subclase, vacio == minimum().
+    """
+
+    def validate(self, text: str, pos: int):
+        if text.strip() == "":
+            return (QValidator.State.Acceptable, text, pos)
+        return super().validate(text, pos)
+
+    def valueFromText(self, text: str) -> int:
+        if text.strip() == "":
+            return self.minimum()
+        return super().valueFromText(text)
+
 
 ENCODERS = ("x264", "qsv", "nvenc", "amf")
 
@@ -64,6 +88,35 @@ class CanalEditDialog(QDialog):
         self.ed_url = QLineEdit()
         self.ed_url.setPlaceholderText("udp://192.168.1.100:9998")
         form.addRow("URL de destino:", self.ed_url)
+
+        # Params multicast opcionales. Se persisten como query params
+        # dentro de url_destino -- zero cambios de schema. Valor 0 = no
+        # agregar a la URL (SpecialValueText los muestra como "(sin setear)").
+        lbl_multicast = QLabel("<b>Parametros multicast (opcional)</b>")
+        lbl_multicast.setStyleSheet("color: #495057; margin-top: 4px;")
+        form.addRow("", lbl_multicast)
+
+        self.spin_ttl = _OptionalSpinBox()
+        self.spin_ttl.setRange(0, 255)
+        self.spin_ttl.setSpecialValueText("(sin setear)")
+        self.spin_ttl.setValue(0)
+        self.spin_ttl.setToolTip(
+            "TTL (Time To Live) del paquete UDP. Tipico 32 para cross-subnet "
+            "en multicast. Deja el campo vacio o en 0 para no agregarlo a la URL."
+        )
+        form.addRow("TTL:", self.spin_ttl)
+
+        self.spin_pkt_size = _OptionalSpinBox()
+        self.spin_pkt_size.setRange(0, 9000)
+        self.spin_pkt_size.setSingleStep(4)
+        self.spin_pkt_size.setSpecialValueText("(sin setear)")
+        self.spin_pkt_size.setValue(0)
+        self.spin_pkt_size.setToolTip(
+            "Tamano de paquete UDP en bytes. Tipico 1316 para MPEG-TS "
+            "(7 paquetes TS de 188 bytes). Deja el campo vacio o en 0 para "
+            "no agregarlo a la URL."
+        )
+        form.addRow("pkt_size:", self.spin_pkt_size)
 
         self.cmb_encoder = QComboBox()
         for e in ENCODERS:
@@ -129,7 +182,21 @@ class CanalEditDialog(QDialog):
         # Prefill si es edición
         if canal:
             self.ed_nombre.setText(canal.get("nombre", ""))
-            self.ed_url.setText(canal.get("url_destino", ""))
+            # La URL en BD puede traer `?ttl=...&pkt_size=...` embebido.
+            # La separamos para mostrar la URL base en ed_url y los params
+            # en sus propios spinners. Al guardar, se recomponen.
+            base_url, ttl_str, pkt_str = extract_multicast_params(
+                canal.get("url_destino", "")
+            )
+            self.ed_url.setText(base_url)
+            try:
+                self.spin_ttl.setValue(int(ttl_str) if ttl_str else 0)
+            except (ValueError, TypeError):
+                self.spin_ttl.setValue(0)
+            try:
+                self.spin_pkt_size.setValue(int(pkt_str) if pkt_str else 0)
+            except (ValueError, TypeError):
+                self.spin_pkt_size.setValue(0)
             enc = canal.get("encoder", "x264")
             if enc in ENCODERS:
                 self.cmb_encoder.setCurrentText(enc)
@@ -215,9 +282,19 @@ class CanalEditDialog(QDialog):
 
     def get_data(self) -> dict:
         width, height = self.cmb_resolution.currentData()
+        # Componer url_destino: URL base + ttl/pkt_size si estan setados.
+        # Valores 0 = no agregar query param (SpecialValueText "(sin setear)").
+        base_url = self.ed_url.text().strip()
+        ttl_val = self.spin_ttl.value()
+        pkt_val = self.spin_pkt_size.value()
+        url_destino = compose_url(
+            base_url,
+            ttl=str(ttl_val) if ttl_val > 0 else "",
+            pkt_size=str(pkt_val) if pkt_val > 0 else "",
+        )
         return {
             "nombre": self.ed_nombre.text().strip(),
-            "url_destino": self.ed_url.text().strip(),
+            "url_destino": url_destino,
             "encoder": self.cmb_encoder.currentText(),
             "bitrate_kbps": int(self.spin_bitrate.value()),
             "habilitado": self.chk_habilitado.isChecked(),

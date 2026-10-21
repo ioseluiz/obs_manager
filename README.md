@@ -126,8 +126,8 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 - **Botón 🔬 Diagnóstico** — inspecciona los settings efectivos del filtro `udp_out` en OBS.
 
 ### Autopilot v2 (rotación persistente dentro de OBS)
-- **Script Lua residente** — se instala una sola vez en el OBS del servidor y mantiene la rotación de todos los canales (multi-salida + Canal Principal) activa cuando la app cliente se cierra o la laptop se apaga.
-- **Dos modos** — `scene_items` para canales multi-salida (`SetSceneItemEnabled` dentro de la escena contenedora) y `program_global` para Canal Principal legacy (`SetCurrentProgramScene`).
+- **Script Lua residente** — se instala una sola vez en el OBS del servidor y mantiene la rotación de todos los canales activa cuando la app cliente se cierra o la laptop se apaga.
+- **Modo `scene_items`** — `SetSceneItemEnabled` dentro de la escena contenedora de cada canal. El script conserva el modo `program_global` (`SetCurrentProgramScene`) solo por compatibilidad con payloads v2-beta; la app v2.0.0 ya no lo publica.
 - **Hand-off bidireccional** — al cerrar la app publica un último payload con `active_index + seconds_remaining` por canal; al reconectar lee el estado del Lua y restaura los rotadores locales sin salto visible en la UI.
 - **Protección de filtros Source Record** — mientras el Lua tiene control, en cada tick verifica que cada filtro `udp_out` esté habilitado y lo re-habilita si lo encuentra off.
 - **Convivencia con Autopilot v1** — buzones distintos (`__autopilot_config_v2__` / `__autopilot_state_v2__`); si tienes el script v1 cargado en el mismo OBS, ambos coexisten.
@@ -185,7 +185,7 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 
 ### 🔌 Instalar el plugin Source Record (para canales multi-salida)
 
-Los canales multi-salida requieren el plugin **Source Record** de Exeldro. Si sólo vas a usar el rotador global (Canal Principal), podés saltar este paso.
+Todos los canales transmiten a través del plugin **Source Record** de Exeldro — en v2 es **obligatorio** (ya no existe el rotador global del Program de OBS).
 
 1. Descargar desde: https://obsproject.com/forum/resources/source-record.1285/ (o la última versión estable en GitHub Releases del plugin).
 2. Ejecutar el instalador (`.exe`). Instala en la carpeta de OBS automáticamente.
@@ -258,35 +258,31 @@ La app se organiza en pestañas en la barra superior. Estos son los primeros pas
 | Pestaña | Para qué sirve |
 |---|---|
 | **Biblioteca de Escenas** | Crear/editar/borrar todas las escenas del rotador (imágenes, videos, dashboards). No transmite — sólo administra. |
-| **Producción** | Panel operativo. Arriba a la izquierda hay un sidebar con **Canal Principal (Global)** + los canales multi-salida que hayas creado. Elegí uno y en el panel de la derecha aparecen los controles de rotación + botón **▶ Transmitir**. |
+| **Producción** | Panel operativo. A la izquierda hay un sidebar con los canales que hayas creado (➕ Nuevo canal para el primero). Elegí uno y en el panel de la derecha aparecen la playlist, los controles de rotación y el botón **▶ Transmitir**. |
 | **Calendario** | Configura la escena de calendario automático con el marcador dorado que se mueve al día actual. |
 | **Contadores** | Cuenta regresiva/adelante a fecha objetivo. |
 | **Logs** | Últimas 200 líneas de eventos. Auto-refresh cada 5s. |
 
 ### Flujo típico
 
-**Caso A — Una sola salida global (usar Canal Principal):**
-1. Ir a **Biblioteca de Escenas** y crear escenas (imágenes, videos, dashboards).
-2. Ir a **Producción → Canal Principal (Global)**.
-3. Pulsar **▶ Transmitir** → OBS empieza a grabar el output global.
-4. Pulsar **▶** (Play del rotador) → empiezan las rotaciones entre las escenas de la Biblioteca.
-
-**Caso B — Varias salidas independientes (canales multi-salida):**
 1. Verificar que el plugin **Source Record** está instalado en OBS (ver Instalación).
 2. En la primera conexión, la app te va a preguntar **"¿Calibrar ahora?"** — aceptar. Toma ~4 minutos y mide cuántos canales aguanta el equipo por encoder. Ver *📊 Calibración* más abajo.
-3. Ir a **Producción → botón ➕ Nuevo canal en el sidebar**. Rellenar:
+3. Ir a **Biblioteca de Escenas** y crear las secuencias (imágenes, videos, dashboards). Son el pool reusable: varios canales pueden referenciar la misma secuencia.
+4. Ir a **Producción → botón ➕ Nuevo canal en el sidebar**. Rellenar:
    - **Nombre** (será el nombre de la escena OBS contenedora).
-   - **URL destino** (ej: `udp://192.168.1.50:9001` — la IP de la pantalla receptora).
+   - **URL destino** (ej: `udp://192.168.1.50:9001` — la IP de la pantalla receptora; o una IP multicast `230.x.x.x` / `239.x.x.x` para varios receptores, ver *🎥 Reproducir un canal*).
+   - **TTL / pkt_size** (opcionales) — parámetros multicast. Dejalos en `(sin setear)` para unicast; típico `32` / `1316` para multicast entre subredes.
    - **Encoder / Bitrate / Resolución / FPS** — el cost hint del dialog muestra cuánto pesa este canal.
-4. Guardar → el canal aparece en el sidebar. Seleccionarlo → panel de la derecha.
-5. Botón **➕ Agregar** para armar la playlist del canal (elegís escenas de la Biblioteca).
-6. Botón **📡 Aplicar cambios en OBS** → crea la escena contenedora y el filtro Source Record.
+5. Guardar → el canal aparece en el sidebar. Seleccionarlo → panel de la derecha.
+6. Botón **➕ Agregar** para armar la playlist del canal (elegís secuencias de la Biblioteca). Cada cambio de playlist se aplica solo en OBS.
 7. Botón **▶ Transmitir** → arranca el output UDP.
 8. Botón **▶** (Play del rotador) → empieza a alternar entre los items del canal.
 
+Si venís de v1.x, al primer arranque el **wizard de migración** ofrece convertir las secuencias del antiguo rotador global en un canal "Canal Legacy" — podés aceptar, omitir por ahora o no volver a preguntar.
+
 ## 🎛 Canales Multi-Salida
 
-**Concepto**: mientras el Canal Principal usa el "Program" global de OBS (una sola escena en pantalla a la vez), los canales multi-salida cada uno tiene:
+**Concepto**: cada canal es independiente del "Program" de OBS (lo que se ve en la ventana de OBS no importa). Cada canal tiene:
 - Su **propia escena contenedora** en OBS.
 - Su **propio filtro Source Record** que streamea a un **URL UDP independiente**.
 - Su **propia rotación interna** (alterna visibilidad de scene items dentro de su escena madre).
@@ -335,6 +331,22 @@ Reemplazar `9001` con el puerto del URL destino del canal. **El flag `--demux=ts
 3. **Input / Codecs → Demuxers**.
 4. **Demux module** → cambiar de *Automatic* a **MPEG-TS**.
 5. Guardar. Ahora `Media → Open Network Stream → udp://@:9001` funciona sin flag.
+
+### Opción C — Multicast: un canal, varios receptores (o receptor en otro edificio)
+
+Si la URL destino del canal es una IP **multicast** (primer octeto 224–239, ej. `udp://230.126.126.149:8000`), el emisor manda una sola copia y cada receptor se **suscribe** al grupo:
+
+1. En el canal: **URL** `udp://230.126.126.149:8000`, **TTL** `32`, **pkt_size** `1316` → Guardar → **📡 Aplicar cambios en OBS**. (La app guarda `udp://230.126.126.149:8000?ttl=32&pkt_size=1316` y el filtro Source Record lo honra.)
+2. En cada receptor, VLC: `Media → Open Network Stream → udp://@230.126.126.149:8000`. **El `@` es obligatorio** — sin él VLC no se une al grupo y no recibe nada. En unicast se usa `udp://@:8000` (solo puerto).
+3. Para verificar que los paquetes llegan a un equipo sin instalar nada, en PowerShell del receptor:
+   ```powershell
+   $udp = New-Object System.Net.Sockets.UdpClient 8000
+   $udp.JoinMulticastGroup([System.Net.IPAddress]::Parse("230.126.126.149"))
+   $ep = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+   while ($true) { $b = $udp.Receive([ref]$ep); "Recibido $($b.Length) bytes de $ep" }
+   ```
+
+**Red**: dentro de la misma subred el multicast funciona con IGMP snooping (lo habitual). **Entre subredes** (otro edificio) el router debe tener enrutamiento multicast habilitado (PIM) — eso no lo configura la app; si el listener de arriba no muestra nada en el receptor pero sí en el emisor, es un ticket para Redes. Mientras tanto, unicast directo a la IP del receptor (`udp://10.x.x.x:8000`, TTL sin setear) funciona con el enrutamiento normal.
 
 ### Opción C — Autorizar VLC en el firewall (si tenés admin)
 
@@ -398,7 +410,7 @@ Toma ~60 segundos por encoder. Se puede cancelar — guarda lo que alcanzó a me
 
 ## 🎛 Autopilot v2 (rotación persistente)
 
-Mantiene la rotación de **todos** los canales (multi-salida + Canal Principal) activa aunque la app cliente se cierre o la laptop se apague. Portado desde la línea `v1.8.x` (que soportaba una sola escena de programa) y adaptado para el modelo multi-canal de v2.
+Mantiene la rotación de **todos** los canales activa aunque la app cliente se cierre o la laptop se apague. Portado desde la línea `v1.8.x` (que soportaba una sola escena de programa) y adaptado para el modelo multi-canal de v2.
 
 ### Concepto
 

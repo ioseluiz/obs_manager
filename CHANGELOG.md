@@ -5,7 +5,42 @@ Las versiones estables (`v1.8.x`) viven en la rama de release
 `release/v1.8.x-autopilot`; las beta de la línea v2 (canales
 multi-salida) se publican como prereleases desde `main`.
 
-## [Unreleased] — en preparación v2.0.0-beta.N+1
+## [2.0.0] — 2026-10-21
+
+Release final de la línea v2 (canales multi-salida). Acumula lo validado
+en `v2.0.0-beta` más la unificación de canales, el rediseño UI con
+branding Canal de Panamá y el soporte de parámetros multicast. Instalar
+sobre v1.x o v2.0.0-beta preserva DB, logs y `.env`.
+
+### Agregado — Parámetros multicast opcionales por canal (TTL / pkt_size)
+
+- **Campos `TTL` y `pkt_size` en el diálogo de canal**
+  (`views/canal_edit_dialog.py`): dos spinners opcionales debajo de la
+  URL de destino. Se persisten como query params dentro del campo
+  `url_destino` existente (`udp://230.x.x.x:8000?ttl=32&pkt_size=1316`)
+  — zero cambios de schema. Al abrir un canal, la URL se descompone en
+  base + params; al guardar se recompone. Un campo en `(sin setear)` no
+  agrega el parámetro. Valores típicos: `ttl=32` para multicast entre
+  subredes, `pkt_size=1316` para MPEG-TS (7 × 188 bytes).
+- **`_OptionalSpinBox`**: subclase de `QSpinBox` donde dejar el campo
+  vacío equivale a `(sin setear)` — el `QSpinBox` estándar revertía al
+  último valor válido al borrar el texto.
+- **`core/udp_url_params.py`** (nuevo, puro stdlib):
+  `extract_multicast_params(url)` / `compose_url(base, ttl, pkt_size)`.
+  Preserva query params ajenos (`fifo_size`, `localaddr`…), keys
+  case-insensitive, round-trip idempotente. Tests: 21 asserts en
+  `scripts/test_udp_url_params.py`.
+- `core/output_adapter.py` no cambia: ya pasaba `url_destino` tal cual
+  al filtro Source Record, cuyo FFmpeg interno honra los query params.
+
+### Corregido
+
+- `scripts/inspect_canal_filter.py` cargaba el `.env` de la raíz del
+  proyecto (legacy) en vez del de `%LOCALAPPDATA%\OBS_Automation_Manager\`
+  que usa la app — fallaba con "failed to identify client" aunque las
+  credenciales fueran correctas. Ahora resuelve la ruta con
+  `core.paths.get_app_data_dir()` y cae a la del proyecto solo como
+  fallback, e imprime cuál usó.
 
 ### Agregado — Unificación de canales (eliminación del Canal Principal legacy)
 
