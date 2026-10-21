@@ -29,7 +29,10 @@ class CalendarView(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        root.addWidget(scroll)
+        # stretch=1 → el scroll absorbe todo el espacio vertical libre;
+        # sin este factor el hero header se expandia para rellenar y
+        # provocaba scrollbar innecesaria.
+        root.addWidget(scroll, 1)
 
         inner = QWidget()
         scroll.setWidget(inner)
