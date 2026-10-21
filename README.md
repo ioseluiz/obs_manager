@@ -21,6 +21,13 @@ Aplicación de escritorio desarrollada en Python con PyQt6 para la automatizaci�
 
 ## 🌟 Características Principales
 
+### Interfaz corporativa (branding Canal de Panamá)
+- **Shell de aplicación** con sidebar vertical oscuro (azul marino) + header blanco con logo app y branding "CANAL DE PANAMÁ". Navegación por secciones en vez de pestañas horizontales.
+- **Pestaña Inicio** con 4 KPIs (Canales Activos, Escenas Programadas, Dashboards, Estado de Conexión) + acciones rápidas (Nuevo Canal, Conectar OBS, Importar Configuración, Ver Programación) + estado de OBS Studio + vista previa de canales.
+- **Hero sections** por vista con icono circular tintado + título + subtítulo + franjas decorativas corporativas.
+- **Iconos corporativos** (set de 30 PNG) reemplazan los emojis Unicode en todos los botones de acción.
+- **Design tokens** centralizados en `views/theme/` (paleta, espaciados, radios, tipografía) + QSS con property roles (`role="primary|success|danger|warning|muted"`) para que cambiar la paleta no requiera editar 20 vistas.
+
 ### Rotador de Escenas Universal
 Gestión de una lista de reproducción en bucle con soporte para múltiples tipos de contenido:
 - **Imágenes** (JPG, PNG, GIF, BMP) — image_source de OBS.

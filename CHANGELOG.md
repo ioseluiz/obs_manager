@@ -7,6 +7,70 @@ multi-salida) se publican como prereleases desde `main`.
 
 ## [Unreleased] — en preparación v2.0.0-beta.N+1
 
+### Agregado — Rediseño UI (branding Canal de Panamá)
+
+Rediseño visual completo basado en 4 mockups entregados por el equipo
+de diseño (`assets/screens/*.png`). 11 commits incrementales en
+`feature/ui-redesign` desde `feature/aut-v2-multi-canal`:
+
+- **Fase 0 — Design tokens** (`views/theme/`): paleta, espaciados,
+  radios y tipografía centralizados. QSS global con property roles
+  (`role="primary|success|danger|warning|muted"` para botones;
+  `role="hero-title|kpi-number|status-ok|status-warn|status-danger|
+  status-muted|..."` para labels). `views/styles.py` queda como shim
+  de compat.
+- **Fase 1 — Helper de iconos** (`views/theme/icons.py`): carga PNGs
+  corporativos de `assets/icono_*.png` con tinting opcional via
+  QPainter CompositionMode. Reemplaza 36 emojis Unicode (▶ ⏮ ⏸ ⚙ 📤
+  📥 ➕ ✏ 🗑 🔌 🔄 ...) por iconos corporativos en main_window,
+  canal_principal_detail_view, canal_detail_view, scene_view. Fix
+  posterior para tintar en blanco sobre botones de color.
+- **Fase 2 — Shell nuevo** (`views/widgets/sidebar.py`,
+  `views/widgets/app_header.py`, `views/main_window.py` reescrito):
+  sidebar vertical oscuro (azul marino + logo CP al pie, item activo
+  marcado con barra roja) + header blanco con logo app, acciones y
+  branding CP + QStackedWidget. El antiguo QTabWidget + QToolBar
+  horizontales se eliminan. Shim `_StackTabsCompat` preserva
+  `main_window.tabs.addTab(view, name)` para que el MainController
+  siga llamándolo sin cambios.
+- **Fase 3 — Pestaña Inicio** (`views/home_view.py`,
+  `controllers/home_controller.py` + widgets KpiCard, ActionButton,
+  ChannelPreviewCard): nueva primera sección del sidebar con hero,
+  4 KPI cards, 4 acciones rápidas, card de estado OBS, grid de vista
+  previa de canales. Datos reales desde CanalModel, SceneModel,
+  OBSClient con refresco cada 5 s.
+- **Fase 4 — Hero sections** (`views/widgets/hero_header.py`
+  reusable): aplicado como primer widget de las 5 vistas internas
+  (Calendario, Biblioteca, Contadores, Producción, Logs) con variante
+  cromática por vista.
+- **Fase 5 — Refinamiento por vista**: 5 subcommits migrando
+  `setStyleSheet` inline a `setProperty("role", ...)`. ~30 inline
+  reemplazados en scene_view, countdown_view, canal_detail,
+  canal_principal_detail, calendar_view, logs_view.
+- **Fase 6 — Diálogos**: pass de theming en SettingsDialog +
+  scene_edit, canal_edit, calendar_simulation, autopilot_install_v2,
+  import, capacity_validation, calibration.
+- **Fase 7 — QA + limpieza**: 11 tests headless siguen verdes
+  (test_autopilot_client_v2, test_autopilot_v2_controller,
+  test_canal_model, test_canal_rotator_controls, test_canal_schedule,
+  test_output_adapter, test_calibration_engine/facade,
+  test_capacity_repo/validator, test_encoding_lag_watchdog).
+  Removidos 5 archivos duplicados por OneDrive conflict copy
+  (`*-O-387404-NINCZL.py`), agregados a `.gitignore`.
+
+Herramienta auxiliar: `scripts/logo_a_blanco_transparente.py`
+convierte un JPG/PNG a color con fondo blanco → silueta blanca sobre
+fondo transparente usando luminosidad perceptual como alpha. Se usó
+para generar `assets/logo_canal_blanco_transparent.png` desde
+`CP_RGB_p_VerAlt (1).jpg`.
+
+**Preservación de funcionalidad**: cero cambios en models,
+controllers de negocio (CanalController, SceneController,
+CalendarController, CountdownController, AutopilotV2Controller) ni
+señales/slots. El refactor es puramente visual + reestructuración de
+layout del shell. Toda la operación (rotación, transmisión, apply
+canal, calibración, Autopilot v2) funciona idéntica.
+
 ### Agregado — Autopilot v2 (port multi-canal)
 
 Port completo del **Autopilot v1.8** (script Lua residente dentro de
