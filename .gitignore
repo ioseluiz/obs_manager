@@ -66,3 +66,6 @@ Desktop.ini
 # Recursos locales de referencia (calendarios, scripts Lua)
 # ==========================================
 calendars/
+
+# OneDrive conflict copies (archivos duplicados por sync)
+*-O-*-NINCZL.*

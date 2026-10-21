@@ -23,6 +23,14 @@ from models.canal_model import CanalModel
 from views.produccion_view import ProduccionView
 from controllers.canal_controller import CanalController
 
+from core.autopilot_client import AutopilotClientV2
+from core.legacy_migrator import migrate_legacy_to_canal, needs_migration
+from controllers.autopilot_v2_controller import AutopilotV2Controller
+from controllers.home_controller import HomeController
+from views.autopilot_install_v2_dialog import AutopilotInstallV2Dialog
+from views.home_view import HomeView
+from views.legacy_migration_dialog import LegacyMigrationDialog
+
 from core.workers import OBSConnectionWorker, OBSWatchdog, OBSLauncherWorker, OBSProbeWorker
 
 
@@ -46,6 +54,13 @@ class MainController:
         self.settings_model = SettingsModel()
         self.main_window = MainWindow()
         
+        # 0. Pestana Inicio (Fase 3 UI redesign) — va primera en el sidebar.
+        # La view se agrega aqui; el controller se instancia al final del
+        # __init__ cuando ya existen todos los modelos y controllers que
+        # alimentan sus KPIs.
+        self.home_view = HomeView()
+        self.main_window.add_section(self.home_view, "Inicio", "inicio")
+
         # 1. Iniciar Módulo de Calendario PRIMERO (porque SceneController lo va a necesitar)
         self.scene_model = SceneModel()  # se necesita antes para pasarlo al CalendarController
         self.calendar_model = CalendarModel()
@@ -86,12 +101,30 @@ class MainController:
         self.canal_model = CanalModel()
         self.canal_controller = CanalController(
             self.canal_model, self.scene_model, self.obs_client,
+            calendar_controller=self.calendar_controller,
         )
         self.produccion_view = ProduccionView(
             self.canal_model, self.scene_model, self.canal_controller,
-            self.scene_controller, self.toggle_recording,
         )
         self.main_window.tabs.addTab(self.produccion_view, "Producción")
+
+        # 3.6 Autopilot v2 (Fases C + D del port): mantiene la rotacion
+        # de los canales multi-salida activa + la rotacion del Canal
+        # Principal legacy (program_global) aunque la app se cierre.
+        # Requiere que el usuario haya instalado `autopilot_v2.lua` en
+        # OBS; si no esta, el controller se queda inactivo sin romper
+        # nada.
+        self.autopilot_v2_client = AutopilotClientV2(self.obs_client)
+        self.autopilot_v2 = AutopilotV2Controller(
+            self.autopilot_v2_client,
+            self.canal_controller,
+            scene_controller=self.scene_controller,
+        )
+        # Timer de 3s para refrescar el label de status bar del Autopilot v2.
+        self._autopilot_v2_status_timer = QTimer()
+        self._autopilot_v2_status_timer.setInterval(3000)
+        self._autopilot_v2_status_timer.timeout.connect(
+            self._refresh_autopilot_v2_status)
 
         # 3.5 Pestaña de Logs
         self.logs_view = LogsView()
@@ -104,15 +137,33 @@ class MainController:
         self.watchdog.reconnect_attempt.connect(self._on_reconnect_attempt)
         self.watchdog.start()
 
-        # Estado para pausar/reanudar rotador ante caídas
-        self._rotator_was_running = False
+        # Estado de recording / rotador legacy del Canal Principal:
+        # eliminado como parte de la unificacion. Toda la transmision
+        # vive ahora en los canales multi-salida via Source Record.
 
-        # Estado de transmisión (el botón dispara Start/StopRecord de OBS,
-        # que con Custom Output FFmpeg + URL UDP transmite sin generar archivo).
-        self._is_recording = False
-        self._record_timer = QTimer()
-        self._record_timer.setInterval(1000)
-        self._record_timer.timeout.connect(self._poll_recording_status)
+        # Fase 3 UI redesign: controller de la pestana Inicio. Se instancia
+        # aqui porque ya existen todos los modelos + canal_controller que
+        # alimentan sus KPIs y previews. Las acciones rapidas se encadenan
+        # a los handlers existentes del MainController.
+        self.home_controller = HomeController(
+            self.home_view,
+            canal_model=self.canal_model,
+            scene_model=self.scene_model,
+            obs_client=self.obs_client,
+            settings_model=self.settings_model,
+            canal_controller=self.canal_controller,
+        )
+        self.home_view.action_new_canal.connect(
+            lambda: self.main_window.set_active_section(4)
+        )
+        self.home_view.action_connect_obs.connect(self.connect_to_obs)
+        self.home_view.action_import.connect(self.import_scenes)
+        self.home_view.action_open_schedule.connect(
+            lambda: self.main_window.set_active_section(1)
+        )
+        self.home_view.action_open_settings.connect(self.open_settings)
+        # action_disconnect_obs no se conecta: no hay desconexion
+        # explicita en v1 — el watchdog gestiona la conexion.
 
         self._connect_signals()
 
@@ -139,6 +190,9 @@ class MainController:
             log.debug("No se pudo poblar estado de calibración: %s", e)
         dialog.recalibrate_requested.connect(
             lambda d=dialog: self._on_recalibrate_requested(d)
+        )
+        dialog.install_autopilot_v2_requested.connect(
+            lambda d=dialog: self._on_install_autopilot_v2_requested(d)
         )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -196,38 +250,36 @@ class MainController:
         self.main_window.set_canvas_size(
             self.obs_client.canvas_width, self.obs_client.canvas_height
         )
-        # Habilitar el botón Transmitir de Canal Principal en Producción
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_transmit_principal_enabled(True)
         self.watchdog.mark_connected()
         log.info("Conexión inicial a OBS establecida.")
-        # Sincronizar estado de grabación con OBS (por si ya estaba grabando)
-        self._sync_recording_state()
         # Poblar combos del módulo de contadores con las escenas / text sources de OBS
         self.countdown_controller.refresh_from_obs()
         # Auto-aplicar canales habilitados a OBS (Fase 1e)
         self._auto_apply_canales()
+        # Fase 2 unificacion: ofrecer migrar secuencias legacy a un canal
+        # regular. Non-blocking — si el user omite, se re-ofrece en el
+        # proximo connect; si marca "no volver a preguntar", nunca mas.
+        self._maybe_offer_legacy_migration()
         # Arrancar watchdog de encoding_lag (Fase 2f)
         self._start_lag_watchdog()
-
-    def _sync_recording_state(self):
-        status = self.obs_client.get_recording_status()
-        if status and status["active"]:
-            self._is_recording = True
-            self._update_recording_ui(True, status["timecode"][:8])
-            if not self._record_timer.isActive():
-                self._record_timer.start()
-        else:
-            self._is_recording = False
-            self._update_recording_ui(False)
-            self._record_timer.stop()
-
-    def _update_recording_ui(self, active: bool, timecode: str = "00:00:00"):
-        """Propaga el estado de la transmisión legacy a la status bar (label
-        permanente) y al panel de Canal Principal en la pestaña Producción."""
-        self.main_window.set_recording_ui(active, timecode)
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_recording_ui_principal(active, timecode)
+        # Fase E del port: si el Lua Autopilot v2 estuvo rotando mientras
+        # la app estaba cerrada, leer su estado y restaurar los rotadores
+        # locales (active_index + remaining) antes de retomar control.
+        try:
+            self._sync_from_autopilot_v2()
+        except Exception as e:
+            log.warning("Sync bidireccional Autopilot v2 fallo en connect: %s", e)
+        # Arrancar Autopilot v2 (Fase C del port). Idempotente: si el
+        # script Lua no esta instalado se queda inactivo. Debe ir despues
+        # del sync para que el primer publish lleve los handoffs
+        # restaurados (y el Lua vuelva a standby con la foto correcta).
+        try:
+            self.autopilot_v2.start()
+        except Exception as e:
+            log.warning("Autopilot v2 no arranco en connect: %s", e)
+        # Arrancar refresh del label del Autopilot v2 en el status bar.
+        self._refresh_autopilot_v2_status()
+        self._autopilot_v2_status_timer.start()
 
     def _on_connection_lost(self, message):
         log.warning("Caída de OBS detectada por watchdog: %s", message)
@@ -236,22 +288,19 @@ class MainController:
         self.main_window.clear_canvas_size()
         # Detener el watchdog de lag (Fase 2f) — sin OBS no hay stats.
         self._stop_lag_watchdog()
-        # El botón Transmitir de Canal Principal se deshabilita hasta reconectar.
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_transmit_principal_enabled(False)
-        # Detener el polling del timer local; el estado real se re-sincroniza al reconectar.
-        self._record_timer.stop()
-        # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
-        if self.scene_controller.timer.isActive() or self.scene_controller.is_paused:
-            self._rotator_was_running = True
-            self.scene_controller.timer.stop()
-            self.scene_controller.refresh_timer.stop()
-            log.info("Rotador detenido por caída de OBS.")
+        # Detener Autopilot v2 (Fase C del port) — sin OBS no se puede
+        # publicar. El script Lua del lado del servidor hara su propio
+        # timeout de heartbeat (30s) y tomara control.
+        try:
+            self.autopilot_v2.stop()
+        except Exception as e:
+            log.debug("Autopilot v2 stop en caida fallo: %s", e)
+        # Pausar el refresh del label de status bar — ya no hay OBS que leer.
+        self._autopilot_v2_status_timer.stop()
+        self.main_window.set_autopilot_v2_ui(None)
 
     def _on_reconnect_attempt(self, attempt):
         self.main_window.set_reconnecting_ui(attempt)
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_transmit_principal_enabled(False)
 
     def _on_connection_restored(self):
         log.info("Conexión con OBS restaurada.")
@@ -260,8 +309,6 @@ class MainController:
         self.main_window.set_canvas_size(
             self.obs_client.canvas_width, self.obs_client.canvas_height
         )
-        # Re-sincronizar estado de grabación (OBS puede haber seguido grabando)
-        self._sync_recording_state()
         # Refrescar combos del módulo de contadores
         self.countdown_controller.refresh_from_obs()
         # Re-aplicar canales habilitados — OBS pudo haber reiniciado y
@@ -269,11 +316,142 @@ class MainController:
         self._auto_apply_canales()
         # Reiniciar watchdog de encoding_lag (Fase 2f) tras reconexión.
         self._start_lag_watchdog()
-        # Reanudar rotador si estaba activo antes de la caída
-        if self._rotator_was_running:
-            self._rotator_was_running = False
-            self.scene_controller.rotate_to_next_scene()
-            log.info("Rotador reanudado tras reconexión.")
+        # Fase E del port: sync bidireccional con el Lua Autopilot v2.
+        # Si durante la caida de OBS el Lua estuvo rotando por su cuenta
+        # (mode=active), restaurar active_index + remaining en los
+        # rotadores locales antes de retomar control.
+        try:
+            self._sync_from_autopilot_v2()
+        except Exception as e:
+            log.warning("Sync bidireccional Autopilot v2 fallo en reconexion: %s", e)
+        # Re-arrancar Autopilot v2 (Fase C del port). El start() es
+        # idempotente y re-detecta si el script Lua esta instalado.
+        try:
+            self.autopilot_v2.start()
+        except Exception as e:
+            log.warning("Autopilot v2 no arranco en reconexion: %s", e)
+        # Reanudar refresh del label de status bar.
+        self._refresh_autopilot_v2_status()
+        if not self._autopilot_v2_status_timer.isActive():
+            self._autopilot_v2_status_timer.start()
+
+    def _refresh_autopilot_v2_status(self):
+        """Fase F del port: lee el state del Lua y lo pinta en la status
+        bar. Silencioso ante fallos — una desconexion momentanea no debe
+        tirar el refresh."""
+        try:
+            if not self.autopilot_v2_client.is_installed():
+                self.main_window.set_autopilot_v2_ui(None)
+                return
+            state = self.autopilot_v2_client.read_state()
+        except Exception as e:
+            log.debug("Refresh Autopilot v2 status fallo: %s", e)
+            self.main_window.set_autopilot_v2_ui(None)
+            return
+        self.main_window.set_autopilot_v2_ui(state)
+
+    def _sync_from_autopilot_v2(self):
+        """Fase E del port de Autopilot v2.
+
+        Lee el estado publicado por el Lua residente en OBS
+        (`__autopilot_state_v2__`). Si el script estaba en mode=active
+        (porque la app estuvo cerrada o perdio OBS), significa que el
+        Lua tomo control de los rotadores. Al reconectar, restauramos
+        en los rotadores locales la foto exacta — active_index +
+        remaining — asi la UI no muestra un salto y el proximo tick
+        continua desde donde el Lua dejo.
+
+        Si el Lua estaba en standby (la app NO perdio heartbeat) o si
+        el script no esta instalado, no hay nada que sincronizar.
+        """
+        if not self.autopilot_v2_client.is_installed():
+            return
+        state = self.autopilot_v2_client.read_state()
+        if state is None:
+            return
+        if state.get("mode") != "active":
+            return
+
+        synced = 0
+        for entry in state.get("canales") or []:
+            try:
+                canal_id = int(entry.get("canal_id", -999999))
+                remaining = int(entry.get("seconds_remaining", 0) or 0)
+                if remaining <= 0:
+                    continue
+                # Canal Principal legacy (canal_id=-1) fue eliminado — hoy
+                # todos los canales son multi-salida.
+                if canal_id < 0:
+                    continue
+                active_si = int(entry.get("active_scene_item_id", 0) or 0)
+                if active_si > 0 and self.canal_controller.sync_from_handoff(
+                        canal_id, active_si, remaining):
+                    synced += 1
+            except Exception as e:
+                log.debug("sync entry Autopilot v2 fallo: %s", e)
+
+        if synced:
+            log.info(
+                "Autopilot v2: %d rotador(es) sincronizados desde el Lua activo",
+                synced,
+            )
+
+    def _maybe_offer_legacy_migration(self):
+        """Fase 2 de la unificacion.
+
+        Si hay secuencias en la Biblioteca y el flag
+        LEGACY_MIGRATION_DONE no esta marcado, ofrece al user crear un
+        canal regular que agrupe esas secuencias como items. El dialog
+        tiene 3 salidas:
+
+        - Convertir: ejecuta migrate_legacy_to_canal con la seleccion
+          del user y marca el flag.
+        - Omitir por ahora: cierra sin marcar — vuelve a aparecer en
+          el proximo connect.
+        - No volver a preguntar: marca el flag sin crear canal.
+
+        Nunca interrumpe el flujo de connect — ante cualquier excepcion
+        la migracion se omite silenciosamente.
+        """
+        try:
+            if not needs_migration(self.scene_model, self.settings_model):
+                return
+            scenes = self.scene_model.get_all_scenes() or []
+            dialog = LegacyMigrationDialog(scenes, parent=self.main_window)
+            dialog.exec()
+            decision = dialog.decision
+            if decision == LegacyMigrationDialog.DO_NEVER:
+                self.settings_model.set_flag("LEGACY_MIGRATION_DONE", "true")
+                log.info("Legacy migration: user eligio 'no volver a preguntar'")
+                return
+            if decision != LegacyMigrationDialog.DO_CONVERT:
+                # DO_SKIP: no se marca flag, se re-ofrece la proxima vez.
+                return
+            ok, canal_id, msg = migrate_legacy_to_canal(
+                canal_model=self.canal_model,
+                scene_model=self.scene_model,
+                canal_controller=self.canal_controller,
+                canal_name=dialog.canal_name,
+                udp_url=dialog.udp_url,
+                secuencia_ids=dialog.selected_ids,
+            )
+            if ok:
+                self.settings_model.set_flag("LEGACY_MIGRATION_DONE", "true")
+                log.info("Legacy migration: %s", msg)
+                if hasattr(self, "produccion_view") and self.produccion_view is not None:
+                    self.produccion_view.refresh()
+                QMessageBox.information(
+                    self.main_window, "Migración completada", msg,
+                )
+            else:
+                log.warning("Legacy migration fallo: %s", msg)
+                QMessageBox.warning(
+                    self.main_window, "Migración incompleta",
+                    f"{msg}\n\nEl flag no se marco — se te volvera a "
+                    "preguntar en el proximo arranque.",
+                )
+        except Exception as e:
+            log.warning("Legacy migration excepcion: %s", e)
 
     def _auto_apply_canales(self):
         """Aplica en OBS los canales habilitados del modelo (Fase 1e).
@@ -392,6 +570,22 @@ class MainController:
             return
         entry = CapacityRepo().get(fp)
         dialog.set_calibration_status(entry)
+
+    def _on_install_autopilot_v2_requested(self, settings_dialog):
+        """Handler del boton 'Instalar / Verificar Autopilot v2' en
+        Settings. Abre el AutopilotInstallV2Dialog con el cliente actual.
+
+        No requiere OBS conectado: el export al disco funciona offline;
+        la verificacion si requiere conexion y el propio dialogo avisa
+        si no la hay.
+        """
+        dialog = AutopilotInstallV2Dialog(
+            self.autopilot_v2_client, parent=settings_dialog,
+        )
+        dialog.exec()
+        # Refrescar el label de status bar por si el usuario acabo de
+        # cargar el script o verifica estado nuevo.
+        self._refresh_autopilot_v2_status()
 
     def _on_recalibrate_requested(self, settings_dialog):
         """Handler del botón 'Re-calibrar' en Settings.
@@ -742,48 +936,11 @@ class MainController:
         return ok, msg
 
     # --- TRANSMISIÓN ---
-    # Nota: usamos Start/StopRecord de OBS. Con Custom Output FFmpeg + URL UDP
-    # este endpoint dispara el pipeline de transmisión sin generar archivo local.
-    def toggle_recording(self):
-        if not self.obs_client.client:
-            QMessageBox.warning(self.main_window, "Sin conexión",
-                                "Conecta a OBS antes de transmitir.")
-            return
-
-        if self._is_recording:
-            ok, msg = self.obs_client.stop_recording()
-            if not ok:
-                QMessageBox.critical(self.main_window, "Error al detener transmisión", msg)
-                return
-            self._is_recording = False
-            self._record_timer.stop()
-            self._update_recording_ui(False)
-            self.main_window.statusBar().showMessage("Transmisión detenida", 5000)
-            log.info("Transmisión detenida. output_path OBS=%r", msg)
-        else:
-            ok, msg = self.obs_client.start_recording()
-            if not ok:
-                QMessageBox.critical(self.main_window, "Error al iniciar transmisión", msg)
-                return
-            self._is_recording = True
-            self._update_recording_ui(True, "00:00:00")
-            self._record_timer.start()
-            self.main_window.statusBar().showMessage("Transmisión iniciada", 5000)
-            log.info("Transmisión iniciada.")
-
-    def _poll_recording_status(self):
-        status = self.obs_client.get_recording_status()
-        if status is None:
-            # OBS no responde; el watchdog se encarga. Paramos el polling local.
-            self._record_timer.stop()
-            return
-        if not status["active"]:
-            # OBS detuvo la transmisión por otro medio (UI de OBS, hotkey, error…).
-            self._is_recording = False
-            self._record_timer.stop()
-            self._update_recording_ui(False)
-            return
-        self._update_recording_ui(True, status["timecode"][:8])
+    # Start/StopRecord global del Canal Principal legacy fue eliminado
+    # como parte de la unificacion. Hoy la transmision vive en cada
+    # canal multi-salida via OutputAdapter.enable() (filtro udp_out
+    # Source Record). El toggle "Transmitir" por canal esta en
+    # CanalDetailView, enlazado a CanalController.set_habilitado.
 
     def show_main_window(self):
         self.main_window.show()
@@ -797,10 +954,6 @@ class MainController:
         último frame del canal aunque la app se cierre.
         """
         try:
-            self._record_timer.stop()
-        except Exception as e:
-            log.warning("Error deteniendo record_timer: %s", e)
-        try:
             self.watchdog.stop()
             self.watchdog.wait(2000)
         except Exception as e:
@@ -809,6 +962,18 @@ class MainController:
             self._stop_lag_watchdog()
         except Exception as e:
             log.warning("Error deteniendo lag watchdog: %s", e)
+        # Detener refresh del label de Autopilot v2 (Fase F).
+        try:
+            self._autopilot_v2_status_timer.stop()
+        except Exception as e:
+            log.debug("Stop autopilot v2 status timer fallo: %s", e)
+        # Publicar handoff final al Lua v2 ANTES de parar el canal_controller
+        # — asi el script retoma la rotacion con el active_index y
+        # seconds_remaining que la app estaba manejando (Fase C).
+        try:
+            self.autopilot_v2.stop(publish_handoff=True)
+        except Exception as e:
+            log.warning("Error en shutdown de Autopilot v2: %s", e)
         try:
             self.canal_controller.shutdown_keeping_filters()
         except Exception as e:

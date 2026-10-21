@@ -32,12 +32,22 @@ def main():
 
     # Cargar .env con dotenv (la app ya lo usa) para respetar el mismo
     # parsing que el runtime — quita comillas, escape sequences, etc.
+    # La app guarda el .env en %LOCALAPPDATA%\OBS_Automation_Manager\.env
+    # (core.paths.get_app_data_dir); el de la raiz del proyecto es legacy
+    # y SettingsModel lo migra/mueve en el primer arranque. Probamos la
+    # ruta de la app primero y la del proyecto como fallback.
+    try:
+        from core.paths import get_app_data_dir
+        _candidates = [get_app_data_dir() / ".env", _PROJECT_ROOT / ".env"]
+    except Exception:
+        _candidates = [_PROJECT_ROOT / ".env"]
+    env_path = next((p for p in _candidates if p.exists()), _candidates[0])
+    print(f"[.env] usando {env_path}  (existe={env_path.exists()})")
     try:
         from dotenv import load_dotenv
-        load_dotenv(_PROJECT_ROOT / ".env")
+        load_dotenv(env_path)
     except ImportError:
         # Fallback manual — strippea comillas al valor si están.
-        env_path = _PROJECT_ROOT / ".env"
         if env_path.exists():
             for line in env_path.read_text().splitlines():
                 line = line.strip()

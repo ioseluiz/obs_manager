@@ -84,11 +84,11 @@ class CanalDetailView(QWidget):
         self.lbl_nombre.setFont(f)
 
         self.lbl_url = QLabel("—")
-        self.lbl_url.setStyleSheet("color: #495057;")
+        self.lbl_url.setProperty("role", "status-muted")
         self.lbl_status = QLabel("—")
-        self.lbl_status.setStyleSheet("font-weight: bold;")
+        self.lbl_status.setProperty("role", "status-muted")
         self.lbl_active = QLabel("Item activo: —")
-        self.lbl_active.setStyleSheet("color: #495057;")
+        self.lbl_active.setProperty("role", "status-muted")
 
         header_layout.addWidget(self.lbl_nombre)
         header_layout.addWidget(self.lbl_url)
@@ -177,6 +177,26 @@ class CanalDetailView(QWidget):
             item_toolbar.addWidget(b)
         item_toolbar.addStretch(1)
         playlist_layout.addLayout(item_toolbar)
+
+        # Fase 1 UI redesign: iconos corporativos en el toolbar.
+        # Tintados en blanco: todos los botones tienen fondo coloreado
+        # (azul primary o rol success/danger). PNGs originales son azul
+        # marino → sin tinting quedan ilegibles.
+        from views.theme.icons import apply_icon
+        apply_icon(self.btn_transmit, "▶", color="#FFFFFF")
+        apply_icon(self.btn_play, "▶", color="#FFFFFF", size=20)
+        apply_icon(self.btn_prev, "⏮", size=20)   # fallback nativo
+        apply_icon(self.btn_pause, "⏸", color="#FFFFFF", size=20)
+        apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
+        apply_icon(self.btn_stop, "⏹", size=20)   # fallback nativo
+        apply_icon(self.btn_apply, "actualizar", color="#FFFFFF")
+        apply_icon(self.btn_diagnose, "informacion", color="#FFFFFF")
+        apply_icon(self.btn_preview, "imagen_vista_previa", color="#FFFFFF")
+        apply_icon(self.btn_add_item, "➕", color="#FFFFFF")
+        apply_icon(self.btn_remove_item, "eliminar", color="#FFFFFF")
+        apply_icon(self.btn_up_item, "subir", color="#FFFFFF")
+        apply_icon(self.btn_down_item, "bajar", color="#FFFFFF")
+        apply_icon(self.btn_edit_item, "✏", color="#FFFFFF")
 
         self.tbl_items = QTableWidget(0, len(_ITEM_HEADERS))
         self.tbl_items.setHorizontalHeaderLabels(_ITEM_HEADERS)
@@ -597,6 +617,7 @@ class CanalDetailView(QWidget):
             QMessageBox.critical(self, "Error al agregar item", str(e))
             return
         self._refresh_items()
+        self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
 
     def _on_remove_item(self):
@@ -616,6 +637,7 @@ class CanalDetailView(QWidget):
             QMessageBox.critical(self, "Error al quitar item", str(e))
             return
         self._refresh_items()
+        self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
 
     def _on_reorder_item(self, direction: int):
@@ -624,6 +646,7 @@ class CanalDetailView(QWidget):
             return
         if self.canal_model.reorder_item(item_id, direction):
             self._refresh_items()
+            self._auto_apply_after_playlist_change()
             self.canal_changed.emit(self._canal_id)
 
     def _on_edit_item(self):
@@ -656,4 +679,36 @@ class CanalDetailView(QWidget):
             QMessageBox.critical(self, "Error al editar", str(e))
             return
         self._refresh_items()
+        self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
+
+    def _auto_apply_after_playlist_change(self) -> None:
+        """Re-aplica el canal en OBS tras cada edicion de la playlist
+        (agregar / quitar / reordenar / editar duracion).
+
+        Elimina la friccion de tener que pulsar 'Aplicar cambios en OBS'
+        manualmente tras cada cambio. apply_canal es idempotente — wipe
+        and rebuild de scene items + filtro — asi que llamarlo varias
+        veces es seguro.
+
+        Si OBS esta desconectado o el canal no existe, apply_canal
+        devuelve (False, msg); lo mostramos en status bar pero no
+        bloqueamos el flujo de edicion.
+        """
+        if self._canal_id is None or self.canal_controller is None:
+            return
+        try:
+            ok, msg = self.canal_controller.apply_canal(self._canal_id)
+            if not ok:
+                # Silencioso para no interrumpir el flujo de edicion.
+                # Si el user quiere re-aplicar explicitamente, el boton
+                # 'Aplicar cambios en OBS' sigue disponible.
+                import logging
+                logging.getLogger(__name__).debug(
+                    "auto-apply tras cambio de playlist fallo: %s", msg,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(
+                "auto-apply tras cambio de playlist excepcion: %s", e,
+            )

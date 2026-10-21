@@ -12,6 +12,7 @@ class SettingsDialog(QDialog):
     test_connection_requested = pyqtSignal(dict)
     # Emitida al pulsar "Re-calibrar este equipo" (Fase 2e).
     recalibrate_requested = pyqtSignal()
+    install_autopilot_v2_requested = pyqtSignal()
 
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
@@ -82,7 +83,7 @@ class SettingsDialog(QDialog):
 
         self.lbl_cal_status = QLabel("Sin datos de calibración.")
         self.lbl_cal_status.setWordWrap(True)
-        self.lbl_cal_status.setStyleSheet("color: #495057;")
+        self.lbl_cal_status.setProperty("role", "status-muted")
         cal_layout.addWidget(self.lbl_cal_status)
 
         cal_row = QHBoxLayout()
@@ -98,11 +99,37 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(cal_group)
 
+        # --- Autopilot v2 (Fase F del port) ---
+        ap_group = QGroupBox("Autopilot v2 (rotación persistente)")
+        ap_layout = QVBoxLayout(ap_group)
+
+        self.lbl_ap_v2_info = QLabel(
+            "Mantiene la rotación de canales activa cuando esta aplicación "
+            "se cierra. Requiere cargar un script Lua una sola vez en OBS."
+        )
+        self.lbl_ap_v2_info.setWordWrap(True)
+        self.lbl_ap_v2_info.setProperty("role", "status-muted")
+        ap_layout.addWidget(self.lbl_ap_v2_info)
+
+        ap_row = QHBoxLayout()
+        ap_row.addStretch(1)
+        self.btn_install_autopilot_v2 = QPushButton(
+            "🚀 Instalar / Verificar Autopilot v2"
+        )
+        self.btn_install_autopilot_v2.setToolTip(
+            "Abre el asistente para exportar el script autopilot_v2.lua "
+            "y verificar que esté corriendo en OBS."
+        )
+        ap_row.addWidget(self.btn_install_autopilot_v2)
+        ap_layout.addLayout(ap_row)
+
+        layout.addWidget(ap_group)
+
         # --- Botones inferiores ---
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar y Conectar")
         self.btn_cancel = QPushButton("Cancelar")
-        self.btn_cancel.setStyleSheet("background-color: #6C757D;")
+        self.btn_cancel.setProperty("role", "muted")
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addWidget(self.btn_save)
         layout.addLayout(btn_layout)
@@ -114,6 +141,8 @@ class SettingsDialog(QDialog):
         self.btn_browse.clicked.connect(self._on_browse)
         self.btn_test.clicked.connect(self._on_test_clicked)
         self.btn_recalibrate.clicked.connect(self.recalibrate_requested.emit)
+        self.btn_install_autopilot_v2.clicked.connect(
+            self.install_autopilot_v2_requested.emit)
 
     def _on_test_clicked(self):
         self.test_connection_requested.emit({
@@ -125,7 +154,7 @@ class SettingsDialog(QDialog):
     def set_test_pending(self):
         """Estado 'Probando…' mientras el probe worker corre."""
         self.btn_test.setEnabled(False)
-        self.lbl_test_status.setStyleSheet("color: #6C757D;")
+        self.lbl_test_status.setProperty("role", "status-muted")
         self.lbl_test_status.setText("Probando…")
 
     def set_test_result(self, success: bool, message: str):

@@ -1,128 +1,187 @@
+"""Shell principal del rediseno UI.
+
+Layout:
+
+    QMainWindow
+    ├── central = QWidget
+    │   └── QHBoxLayout
+    │       ├── Sidebar (240px fijo, oscuro, items navegables)
+    │       └── QVBoxLayout
+    │           ├── AppHeader (72px fijo, blanco con logo + branding)
+    │           └── QStackedWidget   ← paginas de contenido
+    └── statusBar()                   ← logo + canvas + autopilot v2 + conn
+
+El shell no conoce las paginas; las agrega el MainController via
+`add_section(view, nombre, icon_name)`. Metodos conservados para que
+el resto del codigo siga funcionando: `set_connection_ui`,
+`set_reconnecting_ui`, `set_canvas_size`, `clear_canvas_size`,
+`set_recording_ui`, `set_autopilot_v2_ui`. Atributos conservados:
+`btn_settings`, `btn_connect`, `btn_export`, `btn_import` (ahora
+en el AppHeader).
+"""
+from __future__ import annotations
+
 import sys
 from pathlib import Path
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QTabWidget, QToolBar, QStatusBar, QPushButton,
-                             QLabel, QApplication)
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QStackedWidget,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
 
-_BASE = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parent.parent
+from views.theme import COLORS
+from views.theme.icons import apply_icon
+from views.widgets import AppHeader, Sidebar
+
+_BASE = (
+    Path(sys._MEIPASS)
+    if getattr(sys, "frozen", False)
+    else Path(__file__).parent.parent
+)
 _ICON_PATH = _BASE / "app_icon.ico"
 _LOGO_PATH = _BASE / "assets" / "CP_hor_800px (1).png"
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # --- CONFIGURACIÓN DE LA VENTANA ---
         self.setWindowTitle("OBS Automation Manager - INI")
         self.setWindowIcon(QIcon(str(_ICON_PATH)))
-        # Min height 640px permite trabajar en laptops típicos (1366x768 con
-        # taskbar visible da ~700-720px de área útil).
-        self.setMinimumSize(1100, 640)
+        # Min height 640px permite trabajar en laptops tipicos (1366x768 con
+        # taskbar visible da ~700-720px de area util).
+        self.setMinimumSize(1180, 680)
 
-        # Tamaño inicial adaptativo — 90% de la pantalla disponible, cap en
-        # 1500×880. Esto evita que la ventana arranque al mínimo y comprima
-        # los botones verticalmente en pantallas grandes.
-        # También detectamos pantallas bajas (<720px útiles) para modo compacto.
+        # Tamano inicial adaptativo — 90% de la pantalla disponible, cap en
+        # 1500x880. En el rediseno con sidebar + header fijo necesitamos
+        # un poco mas de ancho minimo para que el contenido respire.
         self._compact_mode = False
         screen = QApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
-            target_w = max(1100, min(1500, int(avail.width() * 0.9)))
-            target_h = max(640, min(880, int(avail.height() * 0.9)))
+            target_w = max(1180, min(1500, int(avail.width() * 0.9)))
+            target_h = max(680, min(880, int(avail.height() * 0.9)))
             self.resize(target_w, target_h)
-            # Laptops de 14" (768px o 1080px @ 125%) suelen dar ≤720px útiles.
+            # Laptops de 14" suelen dar <=720px utiles. El flag lo consume
+            # scene_view para compactar su propio toolbar interno.
             self._compact_mode = avail.height() <= 760
 
-        # --- WIDGET CENTRAL Y LAYOUT ---
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        # ----- Shell: sidebar + (header + stack) -----
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # --- CONTENEDOR DE PESTAÑAS (TABS) ---
-        # Aquí es donde el MainController insertará SceneView, CalendarView y CountdownView
-        self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True) # Le da un aspecto más moderno en Windows
-        self.tabs.setMovable(True)
-        self.main_layout.addWidget(self.tabs)
+        self.sidebar = Sidebar(self)
+        root.addWidget(self.sidebar)
 
-        # --- TOOLBAR (BARRA DE HERRAMIENTAS) ---
-        self.toolbar = QToolBar("Barra Principal")
-        self.toolbar.setMovable(False)
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar)
+        content_col = QVBoxLayout()
+        content_col.setContentsMargins(0, 0, 0, 0)
+        content_col.setSpacing(0)
 
-        # En modo compacto (pantallas ≤760px), los textos largos consumen ancho
-        # innecesario en el toolbar. Reducimos a un símbolo + tooltip descriptivo.
-        # `_text_full` / `_text_compact` se guardan como atributos para permitir
-        # cambiar el estado del botón (p.ej. Conectar → Conectado) sin perder
-        # el texto compacto.
-        compact = self._compact_mode
+        self.header = AppHeader(self)
+        content_col.addWidget(self.header)
 
-        # Botón de Ajustes
-        self.btn_settings = QPushButton("⚙" if compact else " ⚙ Ajustes")
-        self.btn_settings.setToolTip("Ajustes")
-        self.toolbar.addWidget(self.btn_settings)
+        self.stack = QStackedWidget(self)
+        self.stack.setStyleSheet(
+            f"QStackedWidget {{ background-color: {COLORS['bg_app']}; }}"
+        )
+        content_col.addWidget(self.stack, 1)
 
-        self.toolbar.addSeparator()
+        root.addLayout(content_col, 1)
 
-        # Botón de Conexión OBS
-        self.btn_connect = QPushButton("🔌" if compact else " 🔌 Conectar OBS")
-        self.btn_connect.setToolTip("Conectar a OBS")
-        self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
-        self.toolbar.addWidget(self.btn_connect)
+        # Alias de los botones del header para que el MainController los
+        # conecte igual que antes.
+        self.btn_settings = self.header.btn_settings
+        self.btn_connect = self.header.btn_connect
+        self.btn_export = self.header.btn_export
+        self.btn_import = self.header.btn_import
 
-        self.toolbar.addSeparator()
+        # Enlazar sidebar <-> stack.
+        self.sidebar.section_selected.connect(self.set_active_section)
 
-        # Export / Import de escenas
-        self.btn_export = QPushButton("📤" if compact else " 📤 Exportar")
-        self.btn_export.setToolTip("Exportar todas las escenas a un archivo JSON")
-        self.toolbar.addWidget(self.btn_export)
-
-        self.btn_import = QPushButton("📥" if compact else " 📥 Importar")
-        self.btn_import.setToolTip("Importar escenas desde un archivo JSON")
-        self.toolbar.addWidget(self.btn_import)
-
-        # Botón Transmitir global removido en Fase R (R-4): la transmisión
-        # ahora se controla por canal desde la pestaña Producción — Canal
-        # Principal tiene su propio Transmit dentro de su detail panel.
-
-        # --- BARRA DE ESTADO (STATUS BAR) ---
+        # ----- Status bar (misma funcionalidad que antes) -----
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("Listo")
-
-        # Logo ACP + crédito (al inicio del área de permanent widgets, para que
-        # queden al mismo nivel horizontal que Canvas / Conexión y no los tape
-        # ningún mensaje temporal). El logo es blanco sobre transparente, así
-        # que el contenedor lleva fondo oscuro para dar contraste.
         self._build_acp_credit()
 
-        # Timer de grabación (permanent widget, oculto por defecto)
-        self.lbl_record_timer = QLabel("")
-        self.lbl_record_timer.setStyleSheet("color: #DC3545; font-weight: bold;")
-        self.lbl_record_timer.setVisible(False)
-        self.statusBar().addPermanentWidget(self.lbl_record_timer)
-
-        # Canvas de OBS (resolución del base_width × base_height).
-        # Va en el status bar porque (a) es info de estado — su lugar natural,
-        # (b) es siempre visible sin competir con botones por espacio horizontal.
+        # lbl_record_timer y set_recording_ui eliminados en la
+        # unificacion — el Canal Principal legacy ya no existe.
         self.lbl_canvas = QLabel("🖥 Canvas: — ")
-        self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
-        self.lbl_canvas.setToolTip("Resolución del canvas de OBS (base_width × base_height)")
+        self.lbl_canvas.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-family: monospace;"
+        )
+        self.lbl_canvas.setToolTip(
+            "Resolución del canvas de OBS (base_width × base_height)"
+        )
         self.statusBar().addPermanentWidget(self.lbl_canvas)
 
-        # Label para indicar el estado de la conexión en la barra de estado
+        self.lbl_autopilot_v2 = QLabel("")
+        self.lbl_autopilot_v2.setStyleSheet(
+            f"color: {COLORS['text_muted']};"
+        )
+        self.lbl_autopilot_v2.setToolTip(
+            "Estado del script Autopilot v2 residente en OBS. Mantiene la "
+            "rotación de canales activa aunque la app se cierre."
+        )
+        self.lbl_autopilot_v2.setVisible(False)
+        self.statusBar().addPermanentWidget(self.lbl_autopilot_v2)
+
         self.lbl_connection_status = QLabel("Desconectado ")
-        self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
+        self.lbl_connection_status.setStyleSheet(
+            f"color: {COLORS['state_danger']}; font-weight: bold;"
+        )
         self.statusBar().addPermanentWidget(self.lbl_connection_status)
 
-    def _build_acp_credit(self):
-        # Logo a color sobre transparente — sin fondo propio, hereda el color
-        # de la ventana para integrarse con la UI.
-        container = QWidget()
+    # ------------------------------------------------------------------
+    # API publica: navegacion
+    # ------------------------------------------------------------------
 
+    def add_section(self, view: QWidget, name: str, icon_name: str) -> int:
+        """Agrega una pagina de contenido al stack + un item al sidebar.
+
+        `icon_name`: nombre canonico del helper icons (`inicio`,
+        `calendario`, `escenas`, `contadores`, `produccion`, `logs`...).
+
+        Devuelve el indice de la seccion (consistente entre sidebar y
+        stack porque se agregan en el mismo orden).
+        """
+        idx = self.stack.addWidget(view)
+        sidebar_idx = self.sidebar.add_section(name, icon_name)
+        assert idx == sidebar_idx, "stack y sidebar divergieron"
+        return idx
+
+    def set_active_section(self, index: int) -> None:
+        """Cambia la pagina visible + marca el item del sidebar."""
+        if 0 <= index < self.stack.count():
+            self.stack.setCurrentIndex(index)
+            self.sidebar.set_active(index)
+
+    # ------------------------------------------------------------------
+    # Compat: `tabs` apunta al QStackedWidget para codigo que esperaba
+    # un QTabWidget. Soporta solo el subset `addTab(view, name)` y
+    # `currentChanged` que es lo que usaba el main_controller.
+    # ------------------------------------------------------------------
+
+    @property
+    def tabs(self):
+        return _StackTabsCompat(self)
+
+    # ------------------------------------------------------------------
+    # Status bar: logo ACP
+    # ------------------------------------------------------------------
+
+    def _build_acp_credit(self):
+        container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(6, 2, 8, 2)
         row.setSpacing(8)
@@ -130,54 +189,78 @@ class MainWindow(QMainWindow):
         logo = QLabel()
         pix = QPixmap(str(_LOGO_PATH))
         if not pix.isNull():
-            # Status bar típica ~22px; escalamos el logo a 20px de alto.
-            logo.setPixmap(pix.scaledToHeight(
-                20, Qt.TransformationMode.SmoothTransformation))
+            logo.setPixmap(
+                pix.scaledToHeight(20, Qt.TransformationMode.SmoothTransformation)
+            )
         else:
             logo.setText("ACP")
-            logo.setStyleSheet("color: #0D3B66; font-weight: bold;")
-        logo.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            logo.setStyleSheet(
+                f"color: {COLORS['brand_navy']}; font-weight: bold;"
+            )
+        logo.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
 
-        # Texto en azul marino igual al del logo — contrasta con el gris claro
-        # de la ventana y arma con el resto de la paleta (Conectar #0D6EFD).
         credit = QLabel("División de Ingeniería - INI")
         credit.setStyleSheet(
-            "color: #0D3B66; font-size: 11px; font-weight: 600; "
-            "letter-spacing: 0.3px;"
+            f"color: {COLORS['brand_navy']}; font-size: 11px; "
+            "font-weight: 600; letter-spacing: 0.3px;"
         )
-        credit.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        credit.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
 
         row.addWidget(logo)
         row.addWidget(credit)
-
-        # insertPermanentWidget(0, ...) → queda a la izquierda del grupo de
-        # widgets permanentes (Canvas / Conexión), al mismo nivel horizontal.
         self.statusBar().insertPermanentWidget(0, container)
 
+    # ------------------------------------------------------------------
+    # Estados del boton de conexion
+    # ------------------------------------------------------------------
+
+    def _restyle_connect_button(self, text: str, tooltip: str,
+                                 bg: str) -> None:
+        """Aplica un estilo al btn_connect y re-tinta el icono en blanco
+        para no perder contraste tras el setStyleSheet dinamico."""
+        self.btn_connect.setText(text)
+        self.btn_connect.setToolTip(tooltip)
+        self.btn_connect.setStyleSheet(
+            f"background-color: {bg}; color: {COLORS['text_inverse']};"
+        )
+        # Mantener icono blanco acorde al estado.
+        apply_icon(self.btn_connect, "conectar", color="#FFFFFF")
+
     def set_connection_ui(self, connected: bool):
-        """Cambia visualmente la UI dependiendo de si OBS está conectado o no."""
-        compact = self._compact_mode
+        """Cambia visualmente la UI dependiendo de si OBS esta conectado."""
         if connected:
-            self.btn_connect.setText("✔" if compact else " ✔ Conectado")
-            self.btn_connect.setToolTip("Conectado a OBS")
-            self.btn_connect.setStyleSheet("background-color: #198754; color: white;")
+            self._restyle_connect_button(
+                " Conectado", "Conectado a OBS", COLORS["state_success"],
+            )
             self.lbl_connection_status.setText("🟢 Conectado ")
-            self.lbl_connection_status.setStyleSheet("color: #198754; font-weight: bold;")
+            self.lbl_connection_status.setStyleSheet(
+                f"color: {COLORS['state_success']}; font-weight: bold;"
+            )
         else:
-            self.btn_connect.setText("🔌" if compact else " 🔌 Reconectar")
-            self.btn_connect.setToolTip("Reconectar a OBS")
-            self.btn_connect.setStyleSheet("background-color: #0D6EFD; color: white;")
+            self._restyle_connect_button(
+                " Reconectar", "Reconectar a OBS", COLORS["accent_primary"],
+            )
             self.lbl_connection_status.setText("🔴 Desconectado ")
-            self.lbl_connection_status.setStyleSheet("color: #DC3545; font-weight: bold;")
+            self.lbl_connection_status.setStyleSheet(
+                f"color: {COLORS['state_danger']}; font-weight: bold;"
+            )
 
     def set_reconnecting_ui(self, attempt: int):
-        """Estado intermedio: el watchdog está reintentando."""
-        compact = self._compact_mode
-        self.btn_connect.setText("🔁" if compact else " 🔁 Reconectando…")
-        self.btn_connect.setToolTip(f"Reconectando (intento {attempt})")
-        self.btn_connect.setStyleSheet("background-color: #FD7E14; color: white;")
-        self.lbl_connection_status.setText(f"🟠 Reconectando (intento {attempt}) ")
-        self.lbl_connection_status.setStyleSheet("color: #FD7E14; font-weight: bold;")
+        """Estado intermedio: el watchdog esta reintentando."""
+        self._restyle_connect_button(
+            " Reconectando…", f"Reconectando (intento {attempt})",
+            COLORS["state_warning"],
+        )
+        self.lbl_connection_status.setText(
+            f"🟠 Reconectando (intento {attempt}) "
+        )
+        self.lbl_connection_status.setStyleSheet(
+            f"color: {COLORS['state_warning']}; font-weight: bold;"
+        )
 
     def set_canvas_size(self, width, height):
         """Actualiza el label del canvas de OBS en el status bar."""
@@ -189,25 +272,75 @@ class MainWindow(QMainWindow):
         if w > 0 and h > 0:
             self.lbl_canvas.setText(f"🖥 Canvas: {w}×{h} ")
             self.lbl_canvas.setStyleSheet(
-                "color: #198754; font-family: monospace; font-weight: bold;"
+                f"color: {COLORS['state_success']}; "
+                "font-family: monospace; font-weight: bold;"
             )
         else:
             self.clear_canvas_size()
 
     def clear_canvas_size(self):
         self.lbl_canvas.setText("🖥 Canvas: — ")
-        self.lbl_canvas.setStyleSheet("color: #6C757D; font-family: monospace;")
+        self.lbl_canvas.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-family: monospace;"
+        )
 
-    def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
-        """Actualiza el indicador global de transmisión en la status bar.
+    def set_autopilot_v2_ui(self, state: dict | None) -> None:
+        """Actualiza el label de Autopilot v2 segun el state leido del Lua.
 
-        El botón Transmitir por-canal vive en la pestaña Producción; esta
-        etiqueta permanente sólo refleja el estado de Canal Principal
-        (legacy StartRecord de OBS) para tenerlo siempre visible.
+        `state`:
+            None → script no detectado o no se pudo leer; oculta el label.
+            dict con `mode` y `canales[]` → formatea segun standby/active.
         """
-        if active:
-            self.lbl_record_timer.setText(f"🔴 EN VIVO {timecode} ")
-            self.lbl_record_timer.setVisible(True)
+        if state is None:
+            self.lbl_autopilot_v2.setVisible(False)
+            return
+
+        canales = state.get("canales") or []
+        total = len(canales)
+        mode = state.get("mode") or ""
+        version = state.get("script_version") or "?"
+
+        if mode == "active":
+            activos = sum(
+                1 for c in canales
+                if int(c.get("seconds_remaining", 0) or 0) > 0
+            )
+            self.lbl_autopilot_v2.setText(
+                f"🚀 Autopilot v{version} activo · {activos}/{total} rotando "
+            )
+            self.lbl_autopilot_v2.setStyleSheet(
+                f"color: {COLORS['state_danger']}; font-weight: bold;"
+            )
         else:
-            self.lbl_record_timer.setVisible(False)
-            self.lbl_record_timer.setText("")
+            self.lbl_autopilot_v2.setText(
+                f"🎛 Autopilot v{version} listo · {total} canales "
+            )
+            self.lbl_autopilot_v2.setStyleSheet(
+                f"color: {COLORS['state_success']}; font-weight: bold;"
+            )
+        self.lbl_autopilot_v2.setVisible(True)
+
+
+class _StackTabsCompat:
+    """Shim de compatibilidad para codigo que usa `main_window.tabs`.
+
+    Expone solo lo que el main_controller actual necesita:
+    `addTab(view, name)`. El icono se infiere del nombre via un mapa
+    chico para no cambiar el main_controller en este commit. En fases
+    siguientes el controller se migra a `add_section(view, name, icon)`.
+    """
+
+    _NAME_TO_ICON = {
+        "Calendario de Cumpleaños": "calendario",
+        "Biblioteca de Escenas": "escenas",
+        "Contadores": "contadores",
+        "Producción": "produccion",
+        "Logs": "logs",
+    }
+
+    def __init__(self, window: MainWindow):
+        self._window = window
+
+    def addTab(self, view: QWidget, name: str) -> int:
+        icon_name = self._NAME_TO_ICON.get(name, "informacion")
+        return self._window.add_section(view, name, icon_name)

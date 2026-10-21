@@ -118,7 +118,7 @@ class CalibrationDialog(QDialog):
             f"GPU: {self._fingerprint.gpu[:40]})"
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color: #495057;")
+        info.setProperty("role", "status-muted")
         root.addWidget(info)
 
         root.addSpacing(8)

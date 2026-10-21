@@ -148,6 +148,17 @@ class SettingsModel:
             "OBS_PASSWORD": password
         })
 
+    def get_flag(self, key: str, default: str = "false") -> str:
+        """Lee una flag del .env como string (todo lo que es .env es
+        string). Util para flags booleanas genericas sin tener que
+        tocar `get_settings()`.
+        """
+        return os.getenv(key, default)
+
+    def set_flag(self, key: str, value: str) -> None:
+        """Persiste una flag string en el .env."""
+        self._update_env_file({key: str(value)})
+
     def save_launch_settings(self, exe_path, autolaunch):
         self._update_env_file({
             "OBS_EXE_PATH": exe_path or "",

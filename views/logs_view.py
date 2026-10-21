@@ -20,10 +20,21 @@ class LogsView(QWidget):
         self._logs_dir = get_logs_dir()
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(12)
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        layout.addWidget(HeroHeader(
+            "logs",
+            "Logs",
+            "Últimos eventos registrados por la aplicación.",
+            variant="blue",
+        ))
 
         top = QHBoxLayout()
         self.lbl_path = QLabel(f"Archivo: {self._log_path}")
-        self.lbl_path.setStyleSheet("color: #6C757D;")
+        self.lbl_path.setProperty("role", "status-muted")
         top.addWidget(self.lbl_path, 1)
 
         self.chk_autorefresh = QCheckBox("Auto-refrescar cada 5s")

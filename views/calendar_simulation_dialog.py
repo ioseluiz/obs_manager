@@ -127,9 +127,9 @@ class CalendarSimulationDialog(QDialog):
         self.progress_countdown.setFixedHeight(8)
 
         self.btn_start = QPushButton("▶️ Iniciar")
-        self.btn_start.setStyleSheet("background-color: #198754;")
+        self.btn_start.setProperty("role", "success")
         self.btn_stop = QPushButton("⏹ Detener")
-        self.btn_stop.setStyleSheet("background-color: #DC3545;")
+        self.btn_stop.setProperty("role", "danger")
         self.btn_stop.setEnabled(False)
 
         actions = QHBoxLayout()

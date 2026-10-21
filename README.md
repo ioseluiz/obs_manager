@@ -12,6 +12,7 @@ Aplicación de escritorio desarrollada en Python con PyQt6 para la automatizaci�
 - [🎛 Canales Multi-Salida](#-canales-multi-salida)
 - [🎥 Reproducir un canal en una pantalla](#-reproducir-un-canal-en-una-pantalla)
 - [📊 Calibración de Capacidad](#-calibración-de-capacidad)
+- [🎛 Autopilot v2 (rotación persistente)](#-autopilot-v2-rotación-persistente)
 - [🔐 Sesiones de Dashboard (Power BI)](#-sesiones-de-dashboard-power-bi-sistemas-con-login)
 - [📂 Ubicaciones de Datos](#-ubicaciones-de-datos)
 - [📦 Instalador de Windows](#-instalador-de-windows)
@@ -19,6 +20,13 @@ Aplicación de escritorio desarrollada en Python con PyQt6 para la automatizaci�
 - [📝 Notas de Operación](#-notas-de-operación)
 
 ## 🌟 Características Principales
+
+### Interfaz corporativa (branding Canal de Panamá)
+- **Shell de aplicación** con sidebar vertical oscuro (azul marino) + header blanco con logo app y branding "CANAL DE PANAMÁ". Navegación por secciones en vez de pestañas horizontales.
+- **Pestaña Inicio** con 4 KPIs (Canales Activos, Escenas Programadas, Dashboards, Estado de Conexión) + acciones rápidas (Nuevo Canal, Conectar OBS, Importar Configuración, Ver Programación) + estado de OBS Studio + vista previa de canales.
+- **Hero sections** por vista con icono circular tintado + título + subtítulo + franjas decorativas corporativas.
+- **Iconos corporativos** (set de 30 PNG) reemplazan los emojis Unicode en todos los botones de acción.
+- **Design tokens** centralizados en `views/theme/` (paleta, espaciados, radios, tipografía) + QSS con property roles (`role="primary|success|danger|warning|muted"`) para que cambiar la paleta no requiera editar 20 vistas.
 
 ### Rotador de Escenas Universal
 Gestión de una lista de reproducción en bucle con soporte para múltiples tipos de contenido:
@@ -105,6 +113,10 @@ Presets configurables al agregar una escena para acelerar casos comunes:
 Eliminación y creación de escenas en espejo (App + OBS) para mantener el entorno limpio.
 
 ### Canales Multi-Salida (streaming UDP paralelo)
+- **Modelo unificado** — ya no existe el "Canal Principal" legacy. Todas las rotaciones son canales con filtro Source Record propio. Las secuencias (Biblioteca de Escenas) son el pool reusable que varios canales pueden referenciar sin duplicar contenido.
+- **Wizard de migración automático** — al arrancar por primera vez tras la unificación, si detecta secuencias legacy ofrece crear un "Canal Legacy" con esas escenas como items. Un click y queda todo integrado al nuevo modelo.
+- **Auto-apply al editar playlist** — agregar/quitar/mover/editar un item de la playlist re-aplica el canal en OBS automáticamente, sin tener que pulsar "📡 Aplicar cambios en OBS" cada vez.
+- **Hooks por tipo de secuencia activa**: auto-refresh de dashboards URL con `refresh_interval_seg`, seek inicial para videos con `video_offset_seg`, mover marcador del calendario al día actual cuando el item activo es la escena del calendario.
 - **N canales independientes** — cada uno con su propia rotación, encoder, bitrate, resolución y URL destino UDP. Ideal para mandar contenidos distintos a distintas pantallas físicas desde un solo OBS.
 - **Preset por canal** — resolución (720p, 1080p, 1440p, 4K) y FPS (30/60) explícitos. El validador conoce el costo real de cada preset (720p30 = 0.5 unidades vs 1080p60 = 2 unidades).
 - **Calibración automática** — mide cuántos canales aguanta cada encoder (x264, qsv, nvenc, amf) en este equipo. Se guarda por fingerprint del equipo — reinstalar mantiene la calibración.
@@ -112,6 +124,14 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 - **Watchdog runtime** — vigila `encoding_lag` cada 10s durante producción, avisa non-blocking si detecta degradación sostenida.
 - **Botón 🎥 Preview** — verificá localmente lo que sale por el UDP del canal sin depender del firewall.
 - **Botón 🔬 Diagnóstico** — inspecciona los settings efectivos del filtro `udp_out` en OBS.
+
+### Autopilot v2 (rotación persistente dentro de OBS)
+- **Script Lua residente** — se instala una sola vez en el OBS del servidor y mantiene la rotación de todos los canales activa cuando la app cliente se cierra o la laptop se apaga.
+- **Modo `scene_items`** — `SetSceneItemEnabled` dentro de la escena contenedora de cada canal. El script conserva el modo `program_global` (`SetCurrentProgramScene`) solo por compatibilidad con payloads v2-beta; la app v2.0.0 ya no lo publica.
+- **Hand-off bidireccional** — al cerrar la app publica un último payload con `active_index + seconds_remaining` por canal; al reconectar lee el estado del Lua y restaura los rotadores locales sin salto visible en la UI.
+- **Protección de filtros Source Record** — mientras el Lua tiene control, en cada tick verifica que cada filtro `udp_out` esté habilitado y lo re-habilita si lo encuentra off.
+- **Convivencia con Autopilot v1** — buzones distintos (`__autopilot_config_v2__` / `__autopilot_state_v2__`); si tienes el script v1 cargado en el mismo OBS, ambos coexisten.
+- **Status bar + wizard** — label `🎛 Autopilot v2 listo · N canales` en standby / `🚀 Autopilot v2 activo · K/N rotando` cuando toma control; wizard de instalación en Ajustes → sección Autopilot v2.
 
 ## 🛠️ Requisitos del Sistema
 
@@ -165,7 +185,7 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 
 ### 🔌 Instalar el plugin Source Record (para canales multi-salida)
 
-Los canales multi-salida requieren el plugin **Source Record** de Exeldro. Si sólo vas a usar el rotador global (Canal Principal), podés saltar este paso.
+Todos los canales transmiten a través del plugin **Source Record** de Exeldro — en v2 es **obligatorio** (ya no existe el rotador global del Program de OBS).
 
 1. Descargar desde: https://obsproject.com/forum/resources/source-record.1285/ (o la última versión estable en GitHub Releases del plugin).
 2. Ejecutar el instalador (`.exe`). Instala en la carpeta de OBS automáticamente.
@@ -238,35 +258,31 @@ La app se organiza en pestañas en la barra superior. Estos son los primeros pas
 | Pestaña | Para qué sirve |
 |---|---|
 | **Biblioteca de Escenas** | Crear/editar/borrar todas las escenas del rotador (imágenes, videos, dashboards). No transmite — sólo administra. |
-| **Producción** | Panel operativo. Arriba a la izquierda hay un sidebar con **Canal Principal (Global)** + los canales multi-salida que hayas creado. Elegí uno y en el panel de la derecha aparecen los controles de rotación + botón **▶ Transmitir**. |
+| **Producción** | Panel operativo. A la izquierda hay un sidebar con los canales que hayas creado (➕ Nuevo canal para el primero). Elegí uno y en el panel de la derecha aparecen la playlist, los controles de rotación y el botón **▶ Transmitir**. |
 | **Calendario** | Configura la escena de calendario automático con el marcador dorado que se mueve al día actual. |
 | **Contadores** | Cuenta regresiva/adelante a fecha objetivo. |
 | **Logs** | Últimas 200 líneas de eventos. Auto-refresh cada 5s. |
 
 ### Flujo típico
 
-**Caso A — Una sola salida global (usar Canal Principal):**
-1. Ir a **Biblioteca de Escenas** y crear escenas (imágenes, videos, dashboards).
-2. Ir a **Producción → Canal Principal (Global)**.
-3. Pulsar **▶ Transmitir** → OBS empieza a grabar el output global.
-4. Pulsar **▶** (Play del rotador) → empiezan las rotaciones entre las escenas de la Biblioteca.
-
-**Caso B — Varias salidas independientes (canales multi-salida):**
 1. Verificar que el plugin **Source Record** está instalado en OBS (ver Instalación).
 2. En la primera conexión, la app te va a preguntar **"¿Calibrar ahora?"** — aceptar. Toma ~4 minutos y mide cuántos canales aguanta el equipo por encoder. Ver *📊 Calibración* más abajo.
-3. Ir a **Producción → botón ➕ Nuevo canal en el sidebar**. Rellenar:
+3. Ir a **Biblioteca de Escenas** y crear las secuencias (imágenes, videos, dashboards). Son el pool reusable: varios canales pueden referenciar la misma secuencia.
+4. Ir a **Producción → botón ➕ Nuevo canal en el sidebar**. Rellenar:
    - **Nombre** (será el nombre de la escena OBS contenedora).
-   - **URL destino** (ej: `udp://192.168.1.50:9001` — la IP de la pantalla receptora).
+   - **URL destino** (ej: `udp://192.168.1.50:9001` — la IP de la pantalla receptora; o una IP multicast `230.x.x.x` / `239.x.x.x` para varios receptores, ver *🎥 Reproducir un canal*).
+   - **TTL / pkt_size** (opcionales) — parámetros multicast. Dejalos en `(sin setear)` para unicast; típico `32` / `1316` para multicast entre subredes.
    - **Encoder / Bitrate / Resolución / FPS** — el cost hint del dialog muestra cuánto pesa este canal.
-4. Guardar → el canal aparece en el sidebar. Seleccionarlo → panel de la derecha.
-5. Botón **➕ Agregar** para armar la playlist del canal (elegís escenas de la Biblioteca).
-6. Botón **📡 Aplicar cambios en OBS** → crea la escena contenedora y el filtro Source Record.
+5. Guardar → el canal aparece en el sidebar. Seleccionarlo → panel de la derecha.
+6. Botón **➕ Agregar** para armar la playlist del canal (elegís secuencias de la Biblioteca). Cada cambio de playlist se aplica solo en OBS.
 7. Botón **▶ Transmitir** → arranca el output UDP.
 8. Botón **▶** (Play del rotador) → empieza a alternar entre los items del canal.
 
+Si venís de v1.x, al primer arranque el **wizard de migración** ofrece convertir las secuencias del antiguo rotador global en un canal "Canal Legacy" — podés aceptar, omitir por ahora o no volver a preguntar.
+
 ## 🎛 Canales Multi-Salida
 
-**Concepto**: mientras el Canal Principal usa el "Program" global de OBS (una sola escena en pantalla a la vez), los canales multi-salida cada uno tiene:
+**Concepto**: cada canal es independiente del "Program" de OBS (lo que se ve en la ventana de OBS no importa). Cada canal tiene:
 - Su **propia escena contenedora** en OBS.
 - Su **propio filtro Source Record** que streamea a un **URL UDP independiente**.
 - Su **propia rotación interna** (alterna visibilidad de scene items dentro de su escena madre).
@@ -315,6 +331,22 @@ Reemplazar `9001` con el puerto del URL destino del canal. **El flag `--demux=ts
 3. **Input / Codecs → Demuxers**.
 4. **Demux module** → cambiar de *Automatic* a **MPEG-TS**.
 5. Guardar. Ahora `Media → Open Network Stream → udp://@:9001` funciona sin flag.
+
+### Opción C — Multicast: un canal, varios receptores (o receptor en otro edificio)
+
+Si la URL destino del canal es una IP **multicast** (primer octeto 224–239, ej. `udp://230.126.126.149:8000`), el emisor manda una sola copia y cada receptor se **suscribe** al grupo:
+
+1. En el canal: **URL** `udp://230.126.126.149:8000`, **TTL** `32`, **pkt_size** `1316` → Guardar → **📡 Aplicar cambios en OBS**. (La app guarda `udp://230.126.126.149:8000?ttl=32&pkt_size=1316` y el filtro Source Record lo honra.)
+2. En cada receptor, VLC: `Media → Open Network Stream → udp://@230.126.126.149:8000`. **El `@` es obligatorio** — sin él VLC no se une al grupo y no recibe nada. En unicast se usa `udp://@:8000` (solo puerto).
+3. Para verificar que los paquetes llegan a un equipo sin instalar nada, en PowerShell del receptor:
+   ```powershell
+   $udp = New-Object System.Net.Sockets.UdpClient 8000
+   $udp.JoinMulticastGroup([System.Net.IPAddress]::Parse("230.126.126.149"))
+   $ep = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+   while ($true) { $b = $udp.Receive([ref]$ep); "Recibido $($b.Length) bytes de $ep" }
+   ```
+
+**Red**: dentro de la misma subred el multicast funciona con IGMP snooping (lo habitual). **Entre subredes** (otro edificio) el router debe tener enrutamiento multicast habilitado (PIM) — eso no lo configura la app; si el listener de arriba no muestra nada en el receptor pero sí en el emisor, es un ticket para Redes. Mientras tanto, unicast directo a la IP del receptor (`udp://10.x.x.x:8000`, TTL sin setear) funciona con el enrutamiento normal.
 
 ### Opción C — Autorizar VLC en el firewall (si tenés admin)
 
@@ -375,6 +407,59 @@ Toma ~60 segundos por encoder. Se puede cancelar — guarda lo que alcanzó a me
 
 - **Al conectar OBS**: la app compara los canales habilitados vs el `nmax` calibrado. Si excede, aparece un dialog con las sugerencias por canal ("baje `edif721` a 720p" o "cambie encoder a qsv"). Nunca auto-degrada — el user decide.
 - **Durante producción**: un watchdog cada 10s mide skipped frames. Si sostenidamente >5% durante 30s, aparece un aviso en la barra de estado. También non-bloqueante.
+
+## 🎛 Autopilot v2 (rotación persistente)
+
+Mantiene la rotación de **todos** los canales activa aunque la app cliente se cierre o la laptop se apague. Portado desde la línea `v1.8.x` (que soportaba una sola escena de programa) y adaptado para el modelo multi-canal de v2.
+
+### Concepto
+
+Un script Lua residente dentro de OBS (`autopilot_v2.lua`) escucha un buzón JSON publicado por la app vía dos text sources ocultos. Mientras recibe heartbeats frescos (≤ 30 s), el script está en `standby`. Si el heartbeat vence — porque la app se cerró o perdió conexión — el script pasa a `active` y empieza a rotar por su cuenta usando el último `handoff` recibido (índice actual + segundos restantes por canal).
+
+### Instalación — una sola vez por servidor
+
+1. **Ajustes → sección Autopilot v2 → `🚀 Instalar / Verificar Autopilot v2`**.
+2. Pulsa **📥 Exportar a Descargas** (o **💾 Exportar como…** para elegir destino).
+3. En el OBS del servidor: **Herramientas → Scripts → +** y selecciona el `autopilot_v2.lua` exportado.
+4. En el log de Scripts de OBS deberías ver:
+   ```
+   [autopilot_v2] cargando v2.0.0
+   [autopilot_v2] creado text source: __autopilot_config_v2__
+   [autopilot_v2] creado text source: __autopilot_state_v2__
+   [autopilot_v2] timers armados; a la espera de config v2 de la app
+   ```
+5. Vuelve al diálogo de la app y pulsa **🔎 Verificar instalación**. Debería confirmar la versión y modo actual.
+
+Después de la primera instalación, cada vez que la app arranca y detecta el script, aparece en la barra de estado:
+- `🎛 Autopilot v2.0.0 listo · N canales` cuando el script está en standby (la app lo controla).
+- `🚀 Autopilot v2.0.0 activo · K/N rotando` cuando el script tomó control.
+
+### Verificación end-to-end
+
+1. Levanta la app, conecta a OBS, habilita al menos un canal multi-salida y pulsa **▶ Transmitir + Play**.
+2. En la pestaña de Scripts de OBS, log del `autopilot_v2`: deberías ver `config v<N> cargada (N canales)` tras cada rotación en la app.
+3. **Cierra la app** con la X. En el log de la terminal, última línea debe decir `AutopilotV2Controller detenido (handoff=si)`.
+4. Espera ~30-40 segundos. El log del script en OBS pasa a `mode=active` y cada canal empieza a rotar por su cuenta: `[autopilot_v2] canal <id> rotate -> '<item>' (Ns)`.
+5. Las pantallas receptoras siguen viendo contenido rotando sin la app.
+6. **Vuelve a abrir la app**. En su log inicial deberías ver: `Autopilot v2: N rotador(es) sincronizados desde el Lua activo` — la UI retoma exactamente desde donde el Lua la dejó, sin salto visible.
+
+### Convivencia con Autopilot v1
+
+Si tu servidor ya tiene cargado el `autopilot.lua` v1 (release `v1.8.x`), **no hay que removerlo**. Los dos scripts usan buzones distintos y no interfieren:
+- v1: `__autopilot_config__` / `__autopilot_state__`.
+- v2: `__autopilot_config_v2__` / `__autopilot_state_v2__`.
+
+El wizard de instalación v2 detecta la presencia de v1 y lo informa, sin tocarlo. Esto permite rollback instantáneo si algo falla con v2: basta cerrar la app v2 y abrir la v1 — el script v1 toma control del Program global como siempre.
+
+### Protocolo
+
+Contrato JSON documentado en [`obs_scripts/PROTOCOL_v2.md`](obs_scripts/PROTOCOL_v2.md): forma del payload de config, campos del state publicado, flujo end-to-end, reglas de compatibilidad.
+
+### Limitaciones conocidas
+
+- El Lua **no gestiona pausas** — si la app estaba pausada al cerrar, el handoff publica el snapshot del momento pero el Lua reanudará la rotación al tomar control (consistente con "pausas son estado del cliente").
+- El Lua **no refresca escenas tipo URL** (dashboards live) ni reseeka videos — solo cambia de item. Las features de refresh/offset viven en el cliente.
+- El Lua **respeta ventanas horarias** por item (`active_days` bitmask + `active_time_start/end` HH:MM) igual que el cliente.
 
 ## 🔐 Sesiones de Dashboard (Power BI, sistemas con login)
 

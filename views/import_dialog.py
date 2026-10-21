@@ -25,7 +25,7 @@ class ImportPreviewDialog(QDialog):
             f"Exportado: {metadata.get('exported_at', '?')}"
         )
         meta_lbl = QLabel(meta_str)
-        meta_lbl.setStyleSheet("color: #6C757D;")
+        meta_lbl.setProperty("role", "status-muted")
         meta_lbl.setWordWrap(True)
         layout.addWidget(meta_lbl)
 

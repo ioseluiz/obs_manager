@@ -274,7 +274,7 @@ class SceneEditDialog(QDialog):
 
         video_row.addStretch()
         self.btn_detect_duration = QPushButton("🎬 Detectar duración")
-        self.btn_detect_duration.setStyleSheet("background-color: #6C757D;")
+        self.btn_detect_duration.setProperty("role", "muted")
         self.btn_detect_duration.clicked.connect(self._detect_video_duration)
         video_row.addWidget(self.btn_detect_duration)
 

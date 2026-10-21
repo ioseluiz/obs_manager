@@ -13,13 +13,26 @@ class CalendarView(QWidget):
         # Esto permite trabajar cómodamente en laptops de 14" donde el
         # contenido combinado (4 groupboxes) excede la altura útil (~540px).
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(12)
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        root.addWidget(HeroHeader(
+            "calendario",
+            "Calendario de Cumpleaños",
+            "Configura la escena del marcador que se mueve al día actual en OBS Studio.",
+            variant="orange",
+        ))
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        root.addWidget(scroll)
+        # stretch=1 → el scroll absorbe todo el espacio vertical libre;
+        # sin este factor el hero header se expandia para rellenar y
+        # provocaba scrollbar innecesaria.
+        root.addWidget(scroll, 1)
 
         inner = QWidget()
         scroll.setWidget(inner)
@@ -61,7 +74,7 @@ class CalendarView(QWidget):
         )
 
         self.btn_build_scene = QPushButton("🛠 Construir Escena en OBS")
-        self.btn_build_scene.setStyleSheet("background-color: #198754;")
+        self.btn_build_scene.setProperty("role", "success")
 
         build_layout.addRow("Nombre de la Escena:", self.input_scene_name)
         build_layout.addRow("Nombre del Marcador:", self.input_source_name)
@@ -194,7 +207,7 @@ class CalendarView(QWidget):
         read_row.addWidget(self.combo_read_target)
 
         self.btn_read_obs = QPushButton("📥 Leer del marcador OBS")
-        self.btn_read_obs.setStyleSheet("background-color: #6610F2;")
+        self.btn_read_obs.setProperty("role", "primary")
         self.btn_read_obs.setToolTip(
             "Lee la posición y escala actuales del marcador en OBS y las convierte "
             "en valores de calibración para el día indicado."
@@ -207,10 +220,10 @@ class CalendarView(QWidget):
         # --- BOTONES DE ACCIÓN ---
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar Calibración")
-        self.btn_save.setStyleSheet("background-color: #6C757D;")
+        self.btn_save.setProperty("role", "muted")
         self.btn_test = QPushButton("🎯 Mover Círculo a HOY")
         self.btn_simulate = QPushButton("🎬 Iniciar Simulación...")
-        self.btn_simulate.setStyleSheet("background-color: #0D6EFD;")
+        self.btn_simulate.setProperty("role", "primary")
 
         # Export/Import de la calibración a JSON — para poder llevar la
         # configuración del calendario a otra máquina o hacer respaldo.

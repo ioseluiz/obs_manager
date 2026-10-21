@@ -46,44 +46,53 @@ class SceneView(QWidget):
         super().__init__()
         self._compact_mode = compact_mode
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(8, 6, 8, 6)
-        self.layout.setSpacing(6)
+        self.layout.setContentsMargins(16, 12, 16, 12)
+        self.layout.setSpacing(12)
         self._active_scene_name = None
+
+        # Fase 4 UI redesign: hero header corporativo.
+        from views.widgets import HeroHeader
+        self.layout.addWidget(HeroHeader(
+            "escenas",
+            "Biblioteca de Escenas",
+            "Gestiona y organiza las escenas del rotador en OBS Studio.",
+            variant="red",
+        ))
 
         # --- PANEL SUPERIOR: Controles de Reproducción ---
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(4)
         self.btn_start = QPushButton("▶ Iniciar Rotador")
-        self.btn_start.setStyleSheet("background-color: #198754;")
+        self.btn_start.setProperty("role", "success")
 
         self.btn_prev = QPushButton("⏮")
         self.btn_prev.setToolTip("Escena anterior (cancela el countdown actual)")
-        self.btn_prev.setStyleSheet("background-color: #6C757D;")
+        self.btn_prev.setProperty("role", "muted")
         self.btn_prev.setFixedWidth(ICON_BTN_WIDTH)
         self.btn_prev.setEnabled(False)
 
         self.btn_pause = QPushButton("⏸ Pausar")
         self.btn_pause.setToolTip("Congelar el countdown en la escena actual")
-        self.btn_pause.setStyleSheet("background-color: #FD7E14;")
+        self.btn_pause.setProperty("role", "warning")
         self.btn_pause.setEnabled(False)
 
         self.btn_next = QPushButton("⏭")
         self.btn_next.setToolTip("Escena siguiente (cancela el countdown actual)")
-        self.btn_next.setStyleSheet("background-color: #6C757D;")
+        self.btn_next.setProperty("role", "muted")
         self.btn_next.setFixedWidth(ICON_BTN_WIDTH)
         self.btn_next.setEnabled(False)
 
         self.btn_stop = QPushButton("⏹ Detener Rotador")
-        self.btn_stop.setStyleSheet("background-color: #DC3545;")
+        self.btn_stop.setProperty("role", "danger")
         self.btn_stop.setEnabled(False)
 
         self.btn_refresh_previews = QPushButton("🔄")
         self.btn_refresh_previews.setToolTip("Actualizar las miniaturas de todas las escenas")
-        self.btn_refresh_previews.setStyleSheet("background-color: #17A2B8;")
+        self.btn_refresh_previews.setProperty("role", "primary")
         self.btn_refresh_previews.setFixedWidth(ICON_BTN_WIDTH)
 
         self.lbl_status = QLabel("Estado: Detenido")
-        self.lbl_status.setStyleSheet("font-weight: bold; color: #6C757D;")
+        self.lbl_status.setProperty("role", "status-muted")
 
         self.lbl_date = QLabel("Fecha...")
         self.lbl_date.setStyleSheet("font-weight: bold; color: #495057; font-size: 14px;")
@@ -132,28 +141,45 @@ class SceneView(QWidget):
         action_row = QHBoxLayout()
         action_row.setSpacing(4)
         self.btn_add = QPushButton("➕ Agregar Nueva Escena")
-        self.btn_add.setStyleSheet("background-color: #198754; color: white; font-weight: bold;")
+        self.btn_add.setProperty("role", "success")
         self.btn_edit = QPushButton("✏ Editar Seleccionada")
-        self.btn_edit.setStyleSheet("background-color: #0D6EFD; color: white;")
+        self.btn_edit.setProperty("role", "primary")
         self.btn_delete = QPushButton("🗑 Eliminar Seleccionada")
-        self.btn_delete.setStyleSheet("background-color: #DC3545; color: white;")
+        self.btn_delete.setProperty("role", "danger")
 
         self.btn_duplicate = QPushButton("📋")
         self.btn_duplicate.setToolTip("Duplicar escena (Ctrl+D)")
-        self.btn_duplicate.setStyleSheet("background-color: #6F42C1; color: white;")
+        self.btn_duplicate.setProperty("role", "primary")
         self.btn_duplicate.setFixedWidth(ICON_BTN_WIDTH)
         self.btn_move_up = QPushButton("▲")
         self.btn_move_up.setToolTip("Mover escena hacia arriba")
-        self.btn_move_up.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
+        self.btn_move_up.setProperty("role", "muted")
         self.btn_move_up.setFixedWidth(ICON_BTN_WIDTH)
         self.btn_move_down = QPushButton("▼")
         self.btn_move_down.setToolTip("Mover escena hacia abajo")
-        self.btn_move_down.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
+        self.btn_move_down.setProperty("role", "muted")
         self.btn_move_down.setFixedWidth(ICON_BTN_WIDTH)
 
         action_row.addWidget(self.btn_add)
         action_row.addWidget(self.btn_edit)
         action_row.addWidget(self.btn_delete)
+
+        # Fase 1 UI redesign: iconos corporativos reemplazan los emojis.
+        # Tintados en blanco: todos los botones tienen fondo coloreado
+        # (verde success, azul primary, rojo danger, morado, gris muted).
+        from views.theme.icons import apply_icon
+        apply_icon(self.btn_start, "▶", color="#FFFFFF")
+        apply_icon(self.btn_prev, "⏮", size=20)   # fallback nativo
+        apply_icon(self.btn_pause, "⏸", color="#FFFFFF")
+        apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
+        apply_icon(self.btn_stop, "⏹")             # fallback nativo
+        apply_icon(self.btn_refresh_previews, "🔄", color="#FFFFFF", size=18)
+        apply_icon(self.btn_add, "➕", color="#FFFFFF")
+        apply_icon(self.btn_edit, "✏", color="#FFFFFF")
+        apply_icon(self.btn_delete, "🗑", color="#FFFFFF")
+        apply_icon(self.btn_duplicate, "documento", color="#FFFFFF", size=18)
+        apply_icon(self.btn_move_up, "subir", color="#FFFFFF", size=18)
+        apply_icon(self.btn_move_down, "bajar", color="#FFFFFF", size=18)
         # Separador visual entre acciones destructivas/creación y los iconos
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
@@ -232,7 +258,7 @@ class SceneView(QWidget):
         bottom.addWidget(self.lbl_live_target, 1)
         self.btn_live_reset = QPushButton("🔄 Reset")
         self.btn_live_reset.setToolTip("Restaurar zoom 100% y pan 0,0")
-        self.btn_live_reset.setStyleSheet("background-color: #6C757D;")
+        self.btn_live_reset.setProperty("role", "muted")
         bottom.addWidget(self.btn_live_reset)
         outer.addLayout(bottom)
 
