@@ -21,12 +21,11 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from controllers.autopilot_v2_controller import (  # noqa: E402
-    CANAL_ID_PRINCIPAL,
     AutopilotV2Controller,
     collect_canales_payload,
 )
 from controllers.canal_controller import _PlaylistEntry, _RotatorState  # noqa: E402
-from core.autopilot_client import MODE_PROGRAM_GLOBAL, MODE_SCENE_ITEMS  # noqa: E402
+from core.autopilot_client import MODE_SCENE_ITEMS  # noqa: E402
 
 
 def _check(cond: bool, msg: str) -> None:
@@ -61,28 +60,8 @@ def _make_state(canal_id: int, scene_name: str,
     return state
 
 
-class FakeSceneController:
-    """Doble headless del SceneController real.
-
-    Expone solo lo que `_collect_canal_principal_entry` consume + el
-    callback registration que `AutopilotV2Controller` usa.
-    """
-    def __init__(self, scenes_list=None, active_scene_name="",
-                 time_left=0, timer_active=False, is_paused=False):
-        self.scenes_list = scenes_list or []
-        self.active_scene_name = active_scene_name
-        self.time_left = time_left
-        self.is_paused = is_paused
-        self.timer = MagicMock()
-        self.timer.isActive.return_value = timer_active
-        self._cbs = []
-
-    def register_on_rotator_change(self, cb):
-        self._cbs.append(cb)
-
-    def _notify(self):
-        for cb in self._cbs:
-            cb()
+# FakeSceneController ELIMINADO — Canal Principal legacy fue
+# eliminado como parte de la unificacion.
 
 
 class FakeCanalController:
@@ -242,135 +221,10 @@ def test_collect_sin_rotadores():
 
 
 # --------------------------------------------------------------------------
-# Tests de Canal Principal (Fase D)
+# Tests de Canal Principal — ELIMINADOS en la unificacion. Todo se
+# rota ahora via CanalController multi-salida; el modo program_global
+# y el canal_id=-1 ya no existen.
 # --------------------------------------------------------------------------
-
-def test_collect_canal_principal_rotando():
-    print("[collect: Canal Principal con rotador corriendo]")
-    cc = FakeCanalController()
-    sc = FakeSceneController(
-        scenes_list=[
-            {"name": "Bienvenida", "duration": 10, "active_days": 127,
-             "active_time_start": None, "active_time_end": None},
-            {"name": "Menu", "duration": 15, "active_days": 31,
-             "active_time_start": "11:30", "active_time_end": "13:30"},
-        ],
-        active_scene_name="Bienvenida",
-        time_left=7,
-        timer_active=True,
-    )
-    canales = collect_canales_payload(cc, scene_controller=sc)
-    _check(len(canales) == 1, "1 entry en payload")
-    cp = canales[0]
-    _check(cp["canal_id"] == CANAL_ID_PRINCIPAL, "canal_id = -1 (Principal)")
-    _check(cp["modo_rotacion"] == MODE_PROGRAM_GLOBAL,
-           "modo program_global")
-    _check("scene_name" not in cp, "no scene_name en program_global")
-    _check("filter_name" not in cp, "no filter_name en program_global")
-    _check(len(cp["playlist"]) == 2, "playlist tiene las 2 escenas")
-    _check(cp["playlist"][0]["name"] == "Bienvenida", "primer item nombre")
-    _check(cp["playlist"][0]["duration_seg"] == 10, "primer item duration")
-    _check(cp["playlist"][1]["active_time_start"] == "11:30",
-           "ventana horaria preservada")
-    _check(cp["handoff"]["active_scene"] == "Bienvenida",
-           "handoff active_scene correcto")
-    _check(cp["handoff"]["seconds_remaining"] == 7,
-           "handoff seconds_remaining correcto")
-
-
-def test_collect_canal_principal_pausado():
-    print("[collect: Canal Principal pausado tambien se incluye]")
-    cc = FakeCanalController()
-    sc = FakeSceneController(
-        scenes_list=[{"name": "A", "duration": 10}],
-        active_scene_name="A", time_left=5,
-        timer_active=False, is_paused=True,
-    )
-    canales = collect_canales_payload(cc, scene_controller=sc)
-    _check(len(canales) == 1, "pausado publica igual (el Lua retoma si cae)")
-    _check(canales[0]["handoff"]["seconds_remaining"] == 5,
-           "handoff conserva time_left pausado")
-
-
-def test_collect_canal_principal_detenido_no_se_incluye():
-    print("[collect: Canal Principal detenido se omite]")
-    cc = FakeCanalController()
-    sc = FakeSceneController(
-        scenes_list=[{"name": "A", "duration": 10}],
-        timer_active=False, is_paused=False,
-    )
-    canales = collect_canales_payload(cc, scene_controller=sc)
-    _check(canales == [], "detenido no publica Canal Principal")
-
-
-def test_collect_canal_principal_sin_escenas_no_se_incluye():
-    print("[collect: Canal Principal con scenes_list vacia se omite]")
-    cc = FakeCanalController()
-    sc = FakeSceneController(scenes_list=[], timer_active=True)
-    canales = collect_canales_payload(cc, scene_controller=sc)
-    _check(canales == [], "sin escenas no publica Canal Principal")
-
-
-def test_collect_principal_junto_con_multisalida():
-    print("[collect: Canal Principal + 2 canales multi-salida mezclados]")
-    cc = FakeCanalController()
-    cc._rotators[3] = _make_state(3, "canal_3", [(30, 10, 300)],
-                                   active_index=0, remaining_ms=4000)
-    cc._rotators[4] = _make_state(4, "canal_4", [(40, 20, 400)],
-                                   active_index=0, remaining_ms=18000)
-    cc.canal_model.get_canal.side_effect = lambda cid: {
-        3: {"nombre": "canal_3", "habilitado": True},
-        4: {"nombre": "canal_4", "habilitado": True},
-    }.get(cid)
-    cc.canal_model.get_items.side_effect = lambda cid: {
-        3: [{"id": 30, "secuencia_id": 300}],
-        4: [{"id": 40, "secuencia_id": 400}],
-    }.get(cid, [])
-    cc.scene_model.get_scene.side_effect = lambda sid: {
-        300: {"name": "E3"}, 400: {"name": "E4"},
-    }.get(sid)
-    cc.set_status(3, active_index=0, remaining_ms=4000)
-    cc.set_status(4, active_index=0, remaining_ms=18000)
-
-    sc = FakeSceneController(
-        scenes_list=[{"name": "Global", "duration": 10}],
-        active_scene_name="Global", time_left=3,
-        timer_active=True,
-    )
-    canales = collect_canales_payload(cc, scene_controller=sc)
-    _check(len(canales) == 3,
-           "3 entradas: Canal Principal + canal 3 + canal 4")
-    _check(canales[0]["canal_id"] == CANAL_ID_PRINCIPAL,
-           "Canal Principal publicado primero (convencion)")
-    ids = sorted(c["canal_id"] for c in canales)
-    _check(ids == [-1, 3, 4], "ids esperados")
-
-
-def test_scene_controller_callback_se_registra():
-    print("[Controller: AutopilotV2Controller registra callback en SceneController]")
-    _ensure_qapp()
-
-    cc = FakeCanalController()
-    sc = FakeSceneController(timer_active=False)
-    ap_client = MagicMock()
-    ap_client.is_installed.return_value = True
-
-    ctrl = AutopilotV2Controller(ap_client, cc, scene_controller=sc)
-    _check(len(sc._cbs) == 1,
-           "AutopilotV2Controller registro 1 callback en el SceneController")
-    _check(sc._cbs[0] == ctrl.request_publish,
-           "callback es request_publish del AutopilotV2Controller")
-
-    ctrl.start()
-    ap_client.publish_config.reset_mock()
-    # Simular que el SceneController rotó
-    sc._notify()
-    _check(not ap_client.publish_config.called,
-           "notify no publica inmediatamente (va al debouncer)")
-    ctrl._on_debounced_publish()
-    _check(ap_client.publish_config.called,
-           "publish tras disparar debouncer")
-    ctrl.stop()
 
 
 # --------------------------------------------------------------------------
@@ -542,54 +396,8 @@ def test_canal_sync_from_handoff_item_no_en_playlist():
            "scene_item_id ajeno devuelve False")
 
 
-def test_scene_sync_from_handoff_happy_path():
-    print("[SceneController.sync_from_handoff: happy path]")
-    _ensure_qapp()
-    from controllers.scene_controller import SceneController
-    # Construimos SceneController real pero con view/model/obs/settings/cal
-    # mockeados — las lineas de sync_from_handoff solo tocan atributos
-    # internos + metodos del view (que son MagicMock).
-    view = MagicMock()
-    sc = SceneController(view, MagicMock(), MagicMock(), MagicMock(),
-                          MagicMock())
-    sc.scenes_list = [
-        {"name": "A"}, {"name": "B"}, {"name": "C"},
-    ]
-    ok = sc.sync_from_handoff(active_scene_name="B", remaining_sec=8)
-    _check(ok is True, "sync devuelve True con escena valida")
-    _check(sc.active_scene_name == "B", "active_scene_name actualizado")
-    _check(sc.time_left == 8, "time_left actualizado")
-    _check(sc.current_index == 2,
-           "current_index apunta al siguiente a mostrar (B esta en pos 1)")
-    _check(not sc.is_paused, "is_paused=False tras sync")
-    # view.set_rotator_state y highlight_active_scene fueron llamados
-    view.set_rotator_state.assert_called_with("running")
-    view.highlight_active_scene.assert_called_with("B")
-    _check(True, "view.set_rotator_state('running') y highlight llamados")
-
-
-def test_scene_sync_from_handoff_escena_ajena():
-    print("[SceneController.sync_from_handoff: escena no en lista -> False]")
-    _ensure_qapp()
-    from controllers.scene_controller import SceneController
-    view = MagicMock()
-    sc = SceneController(view, MagicMock(), MagicMock(), MagicMock(),
-                          MagicMock())
-    sc.scenes_list = [{"name": "A"}]
-    _check(sc.sync_from_handoff("B", 8) is False,
-           "escena ajena a scenes_list devuelve False")
-
-
-def test_scene_sync_from_handoff_sin_scenes():
-    print("[SceneController.sync_from_handoff: scenes_list vacia -> False]")
-    _ensure_qapp()
-    from controllers.scene_controller import SceneController
-    view = MagicMock()
-    sc = SceneController(view, MagicMock(), MagicMock(), MagicMock(),
-                          MagicMock())
-    sc.scenes_list = []
-    _check(sc.sync_from_handoff("A", 8) is False,
-           "scenes_list vacia devuelve False")
+# test_scene_sync_from_handoff_* ELIMINADOS — SceneController ya no
+# tiene rotador tras la unificacion.
 
 
 def main():
@@ -599,24 +407,17 @@ def main():
     test_collect_canal_sin_scene_item_mapping()
     test_collect_handoff_sin_item_activo()
     test_collect_sin_rotadores()
-    test_collect_canal_principal_rotando()
-    test_collect_canal_principal_pausado()
-    test_collect_canal_principal_detenido_no_se_incluye()
-    test_collect_canal_principal_sin_escenas_no_se_incluye()
-    test_collect_principal_junto_con_multisalida()
     test_start_publica_config_cuando_lua_instalado()
     test_start_no_publica_si_lua_no_instalado()
     test_stop_con_handoff_publica_ultimo_payload()
     test_stop_idempotente()
     test_on_canal_status_changed_arma_debouncer()
     test_publish_recupera_de_not_installed()
-    test_scene_controller_callback_se_registra()
     test_canal_sync_from_handoff_happy_path()
     test_canal_sync_from_handoff_canal_no_aplicado()
     test_canal_sync_from_handoff_item_no_en_playlist()
-    test_scene_sync_from_handoff_happy_path()
-    test_scene_sync_from_handoff_escena_ajena()
-    test_scene_sync_from_handoff_sin_scenes()
+    # Tests de scene_sync_from_handoff y canal_principal eliminados en
+    # la unificacion — el rotador legacy del SceneController ya no existe.
     print("\n=== TODO OK ===")
 
 

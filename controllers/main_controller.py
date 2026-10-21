@@ -430,16 +430,14 @@ class MainController:
                 remaining = int(entry.get("seconds_remaining", 0) or 0)
                 if remaining <= 0:
                     continue
-                if canal_id == -1:
-                    active_scene = str(entry.get("active_scene") or "")
-                    if active_scene and self.scene_controller.sync_from_handoff(
-                            active_scene, remaining):
-                        synced += 1
-                else:
-                    active_si = int(entry.get("active_scene_item_id", 0) or 0)
-                    if active_si > 0 and self.canal_controller.sync_from_handoff(
-                            canal_id, active_si, remaining):
-                        synced += 1
+                # Canal Principal legacy (canal_id=-1) fue eliminado — hoy
+                # todos los canales son multi-salida.
+                if canal_id < 0:
+                    continue
+                active_si = int(entry.get("active_scene_item_id", 0) or 0)
+                if active_si > 0 and self.canal_controller.sync_from_handoff(
+                        canal_id, active_si, remaining):
+                    synced += 1
             except Exception as e:
                 log.debug("sync entry Autopilot v2 fallo: %s", e)
 
