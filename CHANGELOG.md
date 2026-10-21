@@ -7,6 +7,92 @@ multi-salida) se publican como prereleases desde `main`.
 
 ## [Unreleased] — en preparación v2.0.0-beta.N+1
 
+### Agregado — Unificación de canales (eliminación del Canal Principal legacy)
+
+Colapso del modelo dual (Canal Principal legacy + canales multi-salida)
+a un solo paradigma: todos los canales son multi-salida con filtro
+Source Record. Las secuencias (`Biblioteca de Escenas`) se mantienen
+como pool reusable que varios canales pueden referenciar via
+`canal_items`. 7 commits incrementales en `feature/unify-canales`:
+
+- **Fase 1.F1/F2/F3 — Show-hooks por tipo en CanalController**
+  (`controllers/canal_controller.py`): nueva infra `_RotatorState.item_to_seq`
+  + `refresh_timer` + `active_input_name`. Al mostrar un item nuevo,
+  despacha según el tipo de secuencia:
+  - URL con `refresh_interval_seg > 0` → arma QTimer que llama
+    `OBSClient.refresh_browser_source` cada N segundos sobre
+    `{secuencia_nombre}_Web`.
+  - File con `video_offset_seg > 0` → `set_media_cursor` tras mostrar.
+  - Nombre coincide con `settings.cal_scene` →
+    `calendar_controller.move_circle_to_today(show_messages=False)`.
+  Nuevo arg opcional `calendar_controller` en el constructor.
+  Tests: 9 asserts en `scripts/test_canal_show_hooks.py`.
+
+- **Fix auto-apply** (`views/canal_detail_view.py`): nuevo helper
+  `_auto_apply_after_playlist_change` llamado tras cada operación de
+  playlist (agregar / quitar / reordenar / editar duración). Elimina
+  la fricción de tener que pulsar "📡 Aplicar cambios en OBS"
+  manualmente tras cada cambio. El botón sigue disponible como
+  fallback explícito.
+
+- **Fase 2 — Wizard de migración "Canal Legacy"**
+  (`core/legacy_migrator.py`, `views/legacy_migration_dialog.py`):
+  diálogo modal que al primer launch tras la unificación ofrece
+  convertir las secuencias existentes en un canal nuevo con filtro
+  `udp_out`. Tres salidas: Convertir / Omitir por ahora (re-ofrece la
+  próxima vez) / No volver a preguntar (marca flag
+  `LEGACY_MIGRATION_DONE`). Validaciones in-dialog (nombre, URL,
+  selección no vacía). `models/settings_model.py` gana `get_flag` /
+  `set_flag` para persistir banderas genéricas en el `.env`. Tests:
+  16 asserts en `scripts/test_legacy_migrator.py`.
+
+- **Fase 3a — AutopilotV2 ya no soporta Canal Principal legacy**
+  (`controllers/autopilot_v2_controller.py`): eliminada
+  `_collect_canal_principal_entry` y la constante
+  `CANAL_ID_PRINCIPAL`. `collect_canales_payload` solo recorre
+  canales multi-salida (modo `scene_items`). El Lua v2 sigue
+  soportando ambos modos — tolera payloads sin canales
+  `program_global`. En `MainController._sync_from_autopilot_v2` se
+  ignoran `canal_id < 0` que pudieran venir del Lua viejo.
+
+- **Fase 3b/4 — Canal Principal fuera de la UI**:
+  - `controllers/main_controller.py`: eliminados `toggle_recording`,
+    `_sync_recording_state`, `_update_recording_ui`,
+    `_poll_recording_status`, `_is_recording`, `_record_timer`,
+    `_rotator_was_running`. `ProduccionView` se construye con 3 args
+    (sin `scene_controller` ni `on_transmit_principal_toggle`).
+  - `views/produccion_view.py` reescrito: sin sentinel
+    `_CANAL_PRINCIPAL_ID`, sin `CanalPrincipalDetailView`. El sidebar
+    lista solo canales reales + placeholder "Selecciona un canal..."
+    cuando no hay ninguno.
+  - `views/canal_principal_detail_view.py`: **eliminado**.
+  - `views/main_window.py`: sin `lbl_record_timer` ni
+    `set_recording_ui` — ya no hay indicador 🔴 EN VIVO global.
+
+- **Fix hero Calendario**: `calendar_view.py` ahora agrega el
+  `QScrollArea` con stretch=1 — el hero header mantiene su
+  `minimumHeight` de 96px igual que en las otras pestañas. Antes
+  robaba altura y disparaba scrollbar innecesaria.
+
+**Preservado explícitamente**:
+- La `Biblioteca de Escenas` sigue siendo CRUD de secuencias — el
+  SceneController mantiene su CRUD (`add_scene`, `edit_scene`,
+  `delete_scene`), thumbnails (`refresh_all_previews`) y live tuning.
+  Los métodos de rotación (`start_rotation`, `rotate_to_next_scene`,
+  etc.) quedan como código muerto temporal — nadie los invoca ya; se
+  podarán en una fase futura si el riesgo lo justifica.
+- Autopilot v2 Lua intacto — soporta ambos modos aunque el cliente
+  Python ya no publique canales `program_global`. Operadores con el
+  script v2 instalado no necesitan recargar.
+- Secuencias no se tocan — son pool reusable referenciado por
+  `canal_items` via FK.
+
+**Verificación**: 12 tests headless siguen verdes, incluyendo nuevos
+`test_canal_show_hooks` (9 asserts) y `test_legacy_migrator`
+(16 asserts). Validación manual contra OBS real: wizard de migración
+ejecutado por el operador — conversión exitosa a canal regular, URL
+nuevo agregado se incluye en la rotación tras auto-apply.
+
 ### Agregado — Rediseño UI (branding Canal de Panamá)
 
 Rediseño visual completo basado en 4 mockups entregados por el equipo

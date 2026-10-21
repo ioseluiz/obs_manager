@@ -113,6 +113,10 @@ Presets configurables al agregar una escena para acelerar casos comunes:
 Eliminación y creación de escenas en espejo (App + OBS) para mantener el entorno limpio.
 
 ### Canales Multi-Salida (streaming UDP paralelo)
+- **Modelo unificado** — ya no existe el "Canal Principal" legacy. Todas las rotaciones son canales con filtro Source Record propio. Las secuencias (Biblioteca de Escenas) son el pool reusable que varios canales pueden referenciar sin duplicar contenido.
+- **Wizard de migración automático** — al arrancar por primera vez tras la unificación, si detecta secuencias legacy ofrece crear un "Canal Legacy" con esas escenas como items. Un click y queda todo integrado al nuevo modelo.
+- **Auto-apply al editar playlist** — agregar/quitar/mover/editar un item de la playlist re-aplica el canal en OBS automáticamente, sin tener que pulsar "📡 Aplicar cambios en OBS" cada vez.
+- **Hooks por tipo de secuencia activa**: auto-refresh de dashboards URL con `refresh_interval_seg`, seek inicial para videos con `video_offset_seg`, mover marcador del calendario al día actual cuando el item activo es la escena del calendario.
 - **N canales independientes** — cada uno con su propia rotación, encoder, bitrate, resolución y URL destino UDP. Ideal para mandar contenidos distintos a distintas pantallas físicas desde un solo OBS.
 - **Preset por canal** — resolución (720p, 1080p, 1440p, 4K) y FPS (30/60) explícitos. El validador conoce el costo real de cada preset (720p30 = 0.5 unidades vs 1080p60 = 2 unidades).
 - **Calibración automática** — mide cuántos canales aguanta cada encoder (x264, qsv, nvenc, amf) en este equipo. Se guarda por fingerprint del equipo — reinstalar mantiene la calibración.
