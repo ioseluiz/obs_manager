@@ -1,24 +1,19 @@
-"""Pestaña "Producción" — sidebar de canales + panel central por canal (R-4).
+"""Pestaña "Producción" — sidebar de canales + panel central por canal.
 
-Reemplaza las viejas pestañas "Rotador de Escenas" y "Canales Multi-Salida"
-con una vista unificada:
+Vista unificada tras la eliminacion del Canal Principal legacy:
 
-- Sidebar (izquierda): lista de canales configurados. El primero, siempre
-  presente, es **Canal Principal (Global)** que representa el rotador
-  legacy (SceneController + StartRecord de OBS). Los demás son canales
-  regulares de la tabla `canales` (Fase 1a-1e).
-- Panel central (derecha): un `CanalPrincipalDetailView` o un
-  `CanalDetailView` según lo seleccionado.
-- Toolbar arriba del sidebar: crear canal / eliminar canal / refrescar.
+- Sidebar (izquierda): lista de canales de la tabla `canales`. Todos
+  son canales multi-salida con filtro Source Record propio.
+- Panel central (derecha): `CanalDetailView` reasignable al canal
+  seleccionado.
+- Toolbar arriba del sidebar: nuevo / editar / duplicar / eliminar /
+  refrescar.
 
-La vista no habla con OBS ni persiste — delega en `CanalController` (por
-canal) o en el callback `on_transmit_toggle` (para Canal Principal).
+La vista no habla con OBS ni persiste — delega en `CanalController`.
 """
 from __future__ import annotations
 
-from typing import Callable
-
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
@@ -26,28 +21,18 @@ from PyQt6.QtWidgets import (
 )
 
 from views.canal_detail_view import CanalDetailView
-from views.canal_principal_detail_view import CanalPrincipalDetailView
 from views.canal_edit_dialog import CanalEditDialog
-
-
-# Sentinel para Canal Principal en la sidebar (siempre en index 0).
-_CANAL_PRINCIPAL_ID = -1
 
 
 class ProduccionView(QWidget):
     """Vista unificada de Canales."""
 
     def __init__(self, canal_model, scene_model, canal_controller,
-                 scene_controller, on_transmit_principal_toggle: Callable[[], None],
                  parent=None):
         super().__init__(parent)
         self.canal_model = canal_model
         self.scene_model = scene_model
         self.canal_controller = canal_controller
-        self.scene_controller = scene_controller
-        self._on_transmit_principal_toggle = on_transmit_principal_toggle
-        # Mapa canal_id -> índice en el QStackedWidget
-        self._canal_id_to_stack_index: dict[int, int] = {}
         self._setup_ui()
         self._connect_signals()
         self.refresh()
@@ -116,17 +101,20 @@ class ProduccionView(QWidget):
         splitter.addWidget(sidebar_widget)
 
         # ----- PANEL CENTRAL -----
+        # QStackedWidget con un unico panel CanalDetailView reusable:
+        # al cambiar de canal en el sidebar llamamos set_canal(id) en
+        # vez de crear N paneles separados.
         self.stack = QStackedWidget()
 
-        # Index 0: Canal Principal (legacy)
-        self.canal_principal_panel = CanalPrincipalDetailView(
-            self.scene_controller,
-            self._on_transmit_principal_toggle,
+        # Index 0: placeholder cuando no hay canal seleccionado.
+        self._placeholder = QLabel(
+            "Selecciona un canal del sidebar o crea uno nuevo con «➕ Nuevo canal»."
         )
-        self.stack.addWidget(self.canal_principal_panel)
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder.setWordWrap(True)
+        self.stack.addWidget(self._placeholder)
 
-        # Index 1: panel único CanalDetailView que reasignamos al canal
-        # seleccionado — evita crear N panels y sincronizarlos todos.
+        # Index 1: panel único CanalDetailView reasignable.
         self.canal_detail = CanalDetailView(
             self.canal_model, self.scene_model, self.canal_controller,
         )
@@ -160,14 +148,8 @@ class ProduccionView(QWidget):
 
         self.lst_canales.blockSignals(True)
         self.lst_canales.clear()
-        self._canal_id_to_stack_index.clear()
 
-        # Canal Principal siempre primero
-        principal_item = QListWidgetItem("🌐 Canal Principal (Global)")
-        principal_item.setData(Qt.ItemDataRole.UserRole, _CANAL_PRINCIPAL_ID)
-        self.lst_canales.addItem(principal_item)
-
-        # Canales regulares
+        # Canales regulares — todos son multi-salida.
         for canal in self.canal_model.get_all_canales():
             estado = "🟢" if canal["habilitado"] else "⚪"
             item = QListWidgetItem(f"{estado}  {canal['nombre']}")
@@ -177,18 +159,15 @@ class ProduccionView(QWidget):
 
         self.lst_canales.blockSignals(False)
 
-        # Restaurar selección o caer en Canal Principal
-        self._select_by_canal_id(selected_before if selected_before is not None
-                                 else _CANAL_PRINCIPAL_ID)
-
-    def set_transmit_principal_enabled(self, enabled: bool) -> None:
-        """Delegado al panel de Canal Principal (usado por MainController al
-        conectar/desconectar OBS)."""
-        self.canal_principal_panel.set_transmit_enabled(enabled)
-
-    def set_recording_ui_principal(self, active: bool, timecode: str = "00:00:00") -> None:
-        """Sincroniza el estado del botón Transmit de Canal Principal."""
-        self.canal_principal_panel.set_recording_ui(active, timecode)
+        # Restaurar selección si el canal sigue existiendo; si no, caer
+        # en el primero disponible (o placeholder si no hay ninguno).
+        if selected_before is not None:
+            self._select_by_canal_id(selected_before)
+        elif self.lst_canales.count() > 0:
+            self.lst_canales.setCurrentRow(0)
+        else:
+            self.stack.setCurrentIndex(0)  # placeholder
+            self.canal_detail.set_canal(None)
 
     # ------------------------------------------------------------------
     # Slots
@@ -206,8 +185,13 @@ class ProduccionView(QWidget):
             if int(it.data(Qt.ItemDataRole.UserRole)) == canal_id:
                 self.lst_canales.setCurrentRow(row)
                 return
-        # Si no lo encontramos (canal borrado), volver a Canal Principal
-        self.lst_canales.setCurrentRow(0)
+        # Si no lo encontramos (canal borrado), caer en el primero o
+        # placeholder.
+        if self.lst_canales.count() > 0:
+            self.lst_canales.setCurrentRow(0)
+        else:
+            self.stack.setCurrentIndex(0)
+            self.canal_detail.set_canal(None)
 
     def _on_sidebar_selection(self, current: QListWidgetItem | None, _prev):
         if current is None:
@@ -215,12 +199,8 @@ class ProduccionView(QWidget):
             self.canal_detail.set_canal(None)
             return
         canal_id = int(current.data(Qt.ItemDataRole.UserRole))
-        if canal_id == _CANAL_PRINCIPAL_ID:
-            self.stack.setCurrentWidget(self.canal_principal_panel)
-            self.canal_detail.set_canal(None)  # libera el poll
-        else:
-            self.canal_detail.set_canal(canal_id)
-            self.stack.setCurrentWidget(self.canal_detail)
+        self.canal_detail.set_canal(canal_id)
+        self.stack.setCurrentWidget(self.canal_detail)
 
     def _on_new_canal(self):
         existing = {c["nombre"] for c in self.canal_model.get_all_canales()}
@@ -245,10 +225,9 @@ class ProduccionView(QWidget):
 
     def _on_edit_canal(self):
         canal_id = self._selected_canal_id()
-        if canal_id is None or canal_id == _CANAL_PRINCIPAL_ID:
+        if canal_id is None:
             QMessageBox.information(
-                self, "Editar canal",
-                "Seleccione un canal regular (Canal Principal se edita en OBS)."
+                self, "Editar canal", "Seleccione un canal primero."
             )
             return
         canal = self.canal_model.get_canal(canal_id)
@@ -285,10 +264,9 @@ class ProduccionView(QWidget):
 
     def _on_duplicate_canal(self):
         canal_id = self._selected_canal_id()
-        if canal_id is None or canal_id == _CANAL_PRINCIPAL_ID:
+        if canal_id is None:
             QMessageBox.information(
-                self, "Duplicar canal",
-                "Seleccione un canal regular (Canal Principal no se duplica)."
+                self, "Duplicar canal", "Seleccione un canal primero."
             )
             return
         try:
@@ -307,10 +285,9 @@ class ProduccionView(QWidget):
 
     def _on_delete_canal(self):
         canal_id = self._selected_canal_id()
-        if canal_id is None or canal_id == _CANAL_PRINCIPAL_ID:
+        if canal_id is None:
             QMessageBox.information(
-                self, "Eliminar canal",
-                "Seleccione un canal regular (Canal Principal no se puede borrar)."
+                self, "Eliminar canal", "Seleccione un canal primero."
             )
             return
         canal = self.canal_model.get_canal(canal_id)
@@ -334,8 +311,6 @@ class ProduccionView(QWidget):
             QMessageBox.critical(self, "Error al eliminar", str(e))
             return
         self.refresh()
-        # Vuelve a Canal Principal tras borrar
-        self._select_by_canal_id(_CANAL_PRINCIPAL_ID)
 
     def _on_detail_changed(self, _canal_id: int):
         """El detail view emite esto tras editar el canal (toggle habilitado,

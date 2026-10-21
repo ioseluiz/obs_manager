@@ -114,13 +114,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Listo")
         self._build_acp_credit()
 
-        self.lbl_record_timer = QLabel("")
-        self.lbl_record_timer.setStyleSheet(
-            f"color: {COLORS['state_danger']}; font-weight: bold;"
-        )
-        self.lbl_record_timer.setVisible(False)
-        self.statusBar().addPermanentWidget(self.lbl_record_timer)
-
+        # lbl_record_timer y set_recording_ui eliminados en la
+        # unificacion — el Canal Principal legacy ya no existe.
         self.lbl_canvas = QLabel("🖥 Canvas: — ")
         self.lbl_canvas.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-family: monospace;"
@@ -324,15 +319,6 @@ class MainWindow(QMainWindow):
                 f"color: {COLORS['state_success']}; font-weight: bold;"
             )
         self.lbl_autopilot_v2.setVisible(True)
-
-    def set_recording_ui(self, active: bool, timecode: str = "00:00:00"):
-        """Actualiza el indicador global de transmision en la status bar."""
-        if active:
-            self.lbl_record_timer.setText(f"🔴 EN VIVO {timecode} ")
-            self.lbl_record_timer.setVisible(True)
-        else:
-            self.lbl_record_timer.setVisible(False)
-            self.lbl_record_timer.setText("")
 
 
 class _StackTabsCompat:

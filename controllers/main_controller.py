@@ -105,7 +105,6 @@ class MainController:
         )
         self.produccion_view = ProduccionView(
             self.canal_model, self.scene_model, self.canal_controller,
-            self.scene_controller, self.toggle_recording,
         )
         self.main_window.tabs.addTab(self.produccion_view, "Producción")
 
@@ -138,15 +137,9 @@ class MainController:
         self.watchdog.reconnect_attempt.connect(self._on_reconnect_attempt)
         self.watchdog.start()
 
-        # Estado para pausar/reanudar rotador ante caídas
-        self._rotator_was_running = False
-
-        # Estado de transmisión (el botón dispara Start/StopRecord de OBS,
-        # que con Custom Output FFmpeg + URL UDP transmite sin generar archivo).
-        self._is_recording = False
-        self._record_timer = QTimer()
-        self._record_timer.setInterval(1000)
-        self._record_timer.timeout.connect(self._poll_recording_status)
+        # Estado de recording / rotador legacy del Canal Principal:
+        # eliminado como parte de la unificacion. Toda la transmision
+        # vive ahora en los canales multi-salida via Source Record.
 
         # Fase 3 UI redesign: controller de la pestana Inicio. Se instancia
         # aqui porque ya existen todos los modelos + canal_controller que
@@ -257,13 +250,8 @@ class MainController:
         self.main_window.set_canvas_size(
             self.obs_client.canvas_width, self.obs_client.canvas_height
         )
-        # Habilitar el botón Transmitir de Canal Principal en Producción
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_transmit_principal_enabled(True)
         self.watchdog.mark_connected()
         log.info("Conexión inicial a OBS establecida.")
-        # Sincronizar estado de grabación con OBS (por si ya estaba grabando)
-        self._sync_recording_state()
         # Poblar combos del módulo de contadores con las escenas / text sources de OBS
         self.countdown_controller.refresh_from_obs()
         # Auto-aplicar canales habilitados a OBS (Fase 1e)
@@ -293,25 +281,6 @@ class MainController:
         self._refresh_autopilot_v2_status()
         self._autopilot_v2_status_timer.start()
 
-    def _sync_recording_state(self):
-        status = self.obs_client.get_recording_status()
-        if status and status["active"]:
-            self._is_recording = True
-            self._update_recording_ui(True, status["timecode"][:8])
-            if not self._record_timer.isActive():
-                self._record_timer.start()
-        else:
-            self._is_recording = False
-            self._update_recording_ui(False)
-            self._record_timer.stop()
-
-    def _update_recording_ui(self, active: bool, timecode: str = "00:00:00"):
-        """Propaga el estado de la transmisión legacy a la status bar (label
-        permanente) y al panel de Canal Principal en la pestaña Producción."""
-        self.main_window.set_recording_ui(active, timecode)
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_recording_ui_principal(active, timecode)
-
     def _on_connection_lost(self, message):
         log.warning("Caída de OBS detectada por watchdog: %s", message)
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
@@ -329,22 +298,9 @@ class MainController:
         # Pausar el refresh del label de status bar — ya no hay OBS que leer.
         self._autopilot_v2_status_timer.stop()
         self.main_window.set_autopilot_v2_ui(None)
-        # El botón Transmitir de Canal Principal se deshabilita hasta reconectar.
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_transmit_principal_enabled(False)
-        # Detener el polling del timer local; el estado real se re-sincroniza al reconectar.
-        self._record_timer.stop()
-        # Pausar rotador si estaba activo (recordar para reanudar al restaurar)
-        if self.scene_controller.timer.isActive() or self.scene_controller.is_paused:
-            self._rotator_was_running = True
-            self.scene_controller.timer.stop()
-            self.scene_controller.refresh_timer.stop()
-            log.info("Rotador detenido por caída de OBS.")
 
     def _on_reconnect_attempt(self, attempt):
         self.main_window.set_reconnecting_ui(attempt)
-        if hasattr(self, "produccion_view") and self.produccion_view is not None:
-            self.produccion_view.set_transmit_principal_enabled(False)
 
     def _on_connection_restored(self):
         log.info("Conexión con OBS restaurada.")
@@ -353,8 +309,6 @@ class MainController:
         self.main_window.set_canvas_size(
             self.obs_client.canvas_width, self.obs_client.canvas_height
         )
-        # Re-sincronizar estado de grabación (OBS puede haber seguido grabando)
-        self._sync_recording_state()
         # Refrescar combos del módulo de contadores
         self.countdown_controller.refresh_from_obs()
         # Re-aplicar canales habilitados — OBS pudo haber reiniciado y
@@ -380,11 +334,6 @@ class MainController:
         self._refresh_autopilot_v2_status()
         if not self._autopilot_v2_status_timer.isActive():
             self._autopilot_v2_status_timer.start()
-        # Reanudar rotador si estaba activo antes de la caída
-        if self._rotator_was_running:
-            self._rotator_was_running = False
-            self.scene_controller.rotate_to_next_scene()
-            log.info("Rotador reanudado tras reconexión.")
 
     def _refresh_autopilot_v2_status(self):
         """Fase F del port: lee el state del Lua y lo pinta en la status
@@ -987,48 +936,11 @@ class MainController:
         return ok, msg
 
     # --- TRANSMISIÓN ---
-    # Nota: usamos Start/StopRecord de OBS. Con Custom Output FFmpeg + URL UDP
-    # este endpoint dispara el pipeline de transmisión sin generar archivo local.
-    def toggle_recording(self):
-        if not self.obs_client.client:
-            QMessageBox.warning(self.main_window, "Sin conexión",
-                                "Conecta a OBS antes de transmitir.")
-            return
-
-        if self._is_recording:
-            ok, msg = self.obs_client.stop_recording()
-            if not ok:
-                QMessageBox.critical(self.main_window, "Error al detener transmisión", msg)
-                return
-            self._is_recording = False
-            self._record_timer.stop()
-            self._update_recording_ui(False)
-            self.main_window.statusBar().showMessage("Transmisión detenida", 5000)
-            log.info("Transmisión detenida. output_path OBS=%r", msg)
-        else:
-            ok, msg = self.obs_client.start_recording()
-            if not ok:
-                QMessageBox.critical(self.main_window, "Error al iniciar transmisión", msg)
-                return
-            self._is_recording = True
-            self._update_recording_ui(True, "00:00:00")
-            self._record_timer.start()
-            self.main_window.statusBar().showMessage("Transmisión iniciada", 5000)
-            log.info("Transmisión iniciada.")
-
-    def _poll_recording_status(self):
-        status = self.obs_client.get_recording_status()
-        if status is None:
-            # OBS no responde; el watchdog se encarga. Paramos el polling local.
-            self._record_timer.stop()
-            return
-        if not status["active"]:
-            # OBS detuvo la transmisión por otro medio (UI de OBS, hotkey, error…).
-            self._is_recording = False
-            self._record_timer.stop()
-            self._update_recording_ui(False)
-            return
-        self._update_recording_ui(True, status["timecode"][:8])
+    # Start/StopRecord global del Canal Principal legacy fue eliminado
+    # como parte de la unificacion. Hoy la transmision vive en cada
+    # canal multi-salida via OutputAdapter.enable() (filtro udp_out
+    # Source Record). El toggle "Transmitir" por canal esta en
+    # CanalDetailView, enlazado a CanalController.set_habilitado.
 
     def show_main_window(self):
         self.main_window.show()
@@ -1041,10 +953,6 @@ class MainController:
         se remueven escenas — las pantallas remotas siguen recibiendo el
         último frame del canal aunque la app se cierre.
         """
-        try:
-            self._record_timer.stop()
-        except Exception as e:
-            log.warning("Error deteniendo record_timer: %s", e)
         try:
             self.watchdog.stop()
             self.watchdog.wait(2000)
