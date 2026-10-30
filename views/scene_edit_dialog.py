@@ -1,3 +1,5 @@
+from views.widgets.responsive_layout import FlowLayout
+from views.widgets.responsive_dialog import ResponsiveDialog
 import logging
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -41,7 +43,7 @@ def empty_scene_defaults():
     }
 
 
-class SceneEditDialog(QDialog):
+class SceneEditDialog(ResponsiveDialog):
     def __init__(self, scene=None, parent=None, obs_client=None, is_new=False):
         super().__init__(parent)
         self.is_new = is_new
@@ -78,7 +80,7 @@ class SceneEditDialog(QDialog):
         root.setSpacing(6)
 
         # --- Zoom + pan (universal) — FIJO arriba del scroll ---
-        transform_row = QHBoxLayout()
+        transform_row = FlowLayout()
         self.input_zoom = QSpinBox()
         self.input_zoom.setRange(10, 500)
         self.input_zoom.setValue(scene.get("zoom_pct") or 100)
@@ -231,7 +233,7 @@ class SceneEditDialog(QDialog):
         outer.addLayout(row)
 
         # Opciones de video — todo en una sola línea + botón detectar
-        video_row = QHBoxLayout()
+        video_row = FlowLayout()
         video_lbl = QLabel("Video:")
         video_lbl.setStyleSheet("color: #6C757D;")
         video_lbl.setToolTip("Opciones ignoradas si el archivo es una imagen")
@@ -313,7 +315,7 @@ class SceneEditDialog(QDialog):
         url_row.addWidget(self.input_url, 1)
         outer.addLayout(url_row)
 
-        opts_row = QHBoxLayout()
+        opts_row = FlowLayout()
         form = QFormLayout()
 
         self.input_width = QSpinBox()

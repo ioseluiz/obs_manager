@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QGridLayout,
     QLabel,
     QScrollArea,
     QVBoxLayout,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
 from views.theme import COLORS, SPACING
 from views.widgets import ActionButton, ChannelPreviewCard, KpiCard
 from views.widgets.obs_status_card import ObsStatusCard
+from views.widgets.responsive_layout import arrange_grid
 
 
 class HomeView(QWidget):
@@ -42,7 +44,9 @@ class HomeView(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
 
+        self.setProperty("responsive-scroll", True)
         scroll = QScrollArea(self)
+        self._scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
@@ -65,7 +69,6 @@ class HomeView(QWidget):
         root.addWidget(self._build_section_label("Acciones rápidas"))
         root.addLayout(self._build_actions_row())
         root.addLayout(self._build_bottom_row(), 1)
-        root.addStretch(1)
 
     # ------------------------------------------------------------------
     # Hero
@@ -116,8 +119,9 @@ class HomeView(QWidget):
     # KPIs
     # ------------------------------------------------------------------
 
-    def _build_kpi_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_kpi_row(self) -> QGridLayout:
+        row = QGridLayout()
+        self._kpi_grid = row
         row.setSpacing(SPACING["md"])
 
         self.kpi_canales = KpiCard(
@@ -136,9 +140,8 @@ class HomeView(QWidget):
             "conectar", "Estado de Conexión", "—", "Sin conectar",
             variant="green",
         )
-        for k in (self.kpi_canales, self.kpi_escenas,
-                   self.kpi_dashboards, self.kpi_conexion):
-            row.addWidget(k, 1)
+        self._kpis = [self.kpi_canales, self.kpi_escenas, self.kpi_dashboards, self.kpi_conexion]
+        arrange_grid(row, self._kpis, 4)
         return row
 
     # ------------------------------------------------------------------
@@ -153,8 +156,9 @@ class HomeView(QWidget):
         )
         return lbl
 
-    def _build_actions_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_actions_row(self) -> QGridLayout:
+        row = QGridLayout()
+        self._actions_grid = row
         row.setSpacing(SPACING["md"])
 
         self.btn_new_canal = ActionButton(
@@ -173,9 +177,8 @@ class HomeView(QWidget):
             "calendario", "Ver Programación", "Administrar horarios",
             variant="neutral",
         )
-        for b in (self.btn_new_canal, self.btn_connect,
-                   self.btn_import, self.btn_schedule):
-            row.addWidget(b, 1)
+        self._actions = [self.btn_new_canal, self.btn_connect, self.btn_import, self.btn_schedule]
+        arrange_grid(row, self._actions, 4)
 
         self.btn_new_canal.clicked.connect(self.action_new_canal.emit)
         self.btn_connect.clicked.connect(self.action_connect_obs.emit)
@@ -187,11 +190,15 @@ class HomeView(QWidget):
     # Fila inferior: estado OBS + vista previa de canales
     # ------------------------------------------------------------------
 
-    def _build_bottom_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_bottom_row(self) -> QGridLayout:
+        row = QGridLayout()
+        self._bottom_grid = row
         row.setSpacing(SPACING["md"])
-        row.addWidget(self._build_obs_status_card(), 1)
-        row.addWidget(self._build_channels_preview_card(), 1)
+        row.addWidget(self._build_obs_status_card(), 0, 0)
+        self.channels_card = self._build_channels_preview_card()
+        row.addWidget(self.channels_card, 0, 1)
+        row.setColumnStretch(0, 1)
+        row.setColumnStretch(1, 2)
         return row
 
     def _build_obs_status_card(self) -> QWidget:
@@ -232,10 +239,10 @@ class HomeView(QWidget):
         header.addWidget(self.lbl_more)
         col.addLayout(header)
 
-        self._channels_row = QHBoxLayout()
+        self._channels_row = QGridLayout()
+        self._preview_widgets = []
         self._channels_row.setSpacing(SPACING["md"])
-        col.addLayout(self._channels_row)
-        col.addStretch(1)
+        col.addLayout(self._channels_row, 1)
         return wrap
 
     # ------------------------------------------------------------------
@@ -272,6 +279,7 @@ class HomeView(QWidget):
     def set_channel_previews(self, items: list[tuple[str, str, bool]],
                               total: int) -> None:
         """items: hasta 3 tuplas (nombre, escena_actual, is_live)."""
+        self._preview_widgets = []
         # Limpiar previas
         while self._channels_row.count():
             child = self._channels_row.takeAt(0)
@@ -283,12 +291,35 @@ class HomeView(QWidget):
                 f"background: transparent; color: {COLORS['text_muted']}; "
                 "font-size: 12px; padding: 24px;"
             )
-            self._channels_row.addWidget(empty)
+            self._preview_widgets.append(empty)
         else:
             for name, scene_name, is_live in items[:3]:
                 card = ChannelPreviewCard(name, scene_name, is_live)
-                self._channels_row.addWidget(card, 1)
+                self._preview_widgets.append(card)
+        self._reflow()
         if total > len(items):
             self.lbl_more.setText(f"Ver todos ({total})")
         else:
             self.lbl_more.setText("")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reflow()
+
+    def _reflow(self):
+        if not hasattr(self, "_bottom_grid"):
+            return
+        available = max(1, self.width() - 64)
+        columns = 4 if available >= 1040 else 2 if available >= 560 else 1
+        arrange_grid(self._kpi_grid, self._kpis, columns)
+        arrange_grid(self._actions_grid, self._actions, columns)
+        side_by_side = available >= 1040
+        arrange_grid(self._bottom_grid, [self.obs_card, self.channels_card], 2 if side_by_side else 1)
+        if side_by_side:
+            self._bottom_grid.setColumnStretch(0, 1)
+            self._bottom_grid.setColumnStretch(1, 2)
+        self.obs_card.setMinimumHeight(220)
+        self.channels_card.setMinimumHeight(220)
+        preview_width = int(available * 2 / 3) - 32 if side_by_side else available - 32
+        preview_columns = max(1, min(len(self._preview_widgets), preview_width // 240))
+        arrange_grid(self._channels_row, self._preview_widgets, preview_columns)

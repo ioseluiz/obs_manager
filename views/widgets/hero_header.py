@@ -95,6 +95,7 @@ class HeroHeader(QWidget):
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(2)
         self.lbl_title = QLabel(title, self)
+        self.lbl_title.setWordWrap(True)
         self.lbl_title.setStyleSheet(
             f"color: {COLORS['text_primary']}; "
             "font-size: 22px; font-weight: bold;"
@@ -111,9 +112,15 @@ class HeroHeader(QWidget):
         row.addLayout(text_col, 1)
 
         decor = self._build_decor()
+        self._decor = decor
         if decor is not None:
             row.addWidget(decor, 0, Qt.AlignmentFlag.AlignVCenter
                            | Qt.AlignmentFlag.AlignRight)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if getattr(self, "_decor", None) is not None:
+            self._decor.setVisible(self.width() >= 700)
 
     def _build_decor(self) -> QLabel | None:
         pix = QPixmap(str(_DECOR_PATH))

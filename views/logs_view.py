@@ -1,3 +1,4 @@
+from views.widgets.responsive_layout import FlowLayout
 import os
 import subprocess
 from collections import deque
@@ -32,9 +33,12 @@ class LogsView(QWidget):
             variant="blue",
         ))
 
-        top = QHBoxLayout()
+        top = FlowLayout()
         self.lbl_path = QLabel(f"Archivo: {self._log_path}")
         self.lbl_path.setProperty("role", "status-muted")
+        self.lbl_path.setWordWrap(True)
+        self.lbl_path.setMaximumWidth(480)
+        self.lbl_path.setToolTip(str(self._log_path))
         top.addWidget(self.lbl_path, 1)
 
         self.chk_autorefresh = QCheckBox("Auto-refrescar cada 5s")
@@ -70,6 +74,10 @@ class LogsView(QWidget):
             self._timer.start(REFRESH_MS)
         else:
             self._timer.stop()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.lbl_path.setMaximumWidth(max(240, self.width() - 480))
 
     def refresh_logs(self):
         if not self._log_path.exists():

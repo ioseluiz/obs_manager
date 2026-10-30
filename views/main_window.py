@@ -32,6 +32,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QStackedWidget,
+    QScrollArea,
+    QFrame,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -57,9 +59,8 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("OBS Automation Manager - INI")
         self.setWindowIcon(QIcon(str(_ICON_PATH)))
-        # Min height 640px permite trabajar en laptops tipicos (1366x768 con
-        # taskbar visible da ~700-720px de area util).
-        self.setMinimumSize(1180, 680)
+        # El contenido se reorganiza y ofrece scroll desde 640 × 480.
+        self.setMinimumSize(640, 480)
 
         # Tamano inicial adaptativo — 90% de la pantalla disponible, cap en
         # 1500x880. En el rediseno con sidebar + header fijo necesitamos
@@ -68,8 +69,8 @@ class MainWindow(QMainWindow):
         screen = QApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
-            target_w = max(1180, min(1500, int(avail.width() * 0.9)))
-            target_h = max(680, min(880, int(avail.height() * 0.9)))
+            target_w = max(640, min(1500, int(avail.width() * 0.9)))
+            target_h = max(480, min(880, int(avail.height() * 0.9)))
             self.resize(target_w, target_h)
             # Laptops de 14" suelen dar <=720px utiles. El flag lo consume
             # scene_view para compactar su propio toolbar interno.
@@ -143,6 +144,13 @@ class MainWindow(QMainWindow):
         )
         self.statusBar().addPermanentWidget(self.lbl_connection_status)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "sidebar"):
+            self.sidebar.set_compact(self.width() < 1100)
+        if hasattr(self, "_credit_text"):
+            self._credit_text.setVisible(self.width() >= 1000)
+
     # ------------------------------------------------------------------
     # API publica: navegacion
     # ------------------------------------------------------------------
@@ -156,7 +164,15 @@ class MainWindow(QMainWindow):
         Devuelve el indice de la seccion (consistente entre sidebar y
         stack porque se agregan en el mismo orden).
         """
-        idx = self.stack.addWidget(view)
+        page = view
+        if not view.property("responsive-scroll"):
+            viewport = QScrollArea()
+            viewport.setObjectName("SectionViewport")
+            viewport.setFrameShape(QFrame.Shape.NoFrame)
+            viewport.setWidgetResizable(True)
+            viewport.setWidget(view)
+            page = viewport
+        idx = self.stack.addWidget(page)
         sidebar_idx = self.sidebar.add_section(name, icon_name)
         assert idx == sidebar_idx, "stack y sidebar divergieron"
         return idx
@@ -190,6 +206,7 @@ class MainWindow(QMainWindow):
         logo = BrandImage(_LOGO_PATH, 112, 22)
 
         credit = QLabel("División de Ingeniería - INI")
+        self._credit_text = credit
         credit.setStyleSheet(
             f"color: {COLORS['brand_navy']}; font-size: 11px; "
             "font-weight: 600; letter-spacing: 0.3px;"

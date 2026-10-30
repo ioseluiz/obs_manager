@@ -13,6 +13,8 @@ La vista no habla con OBS ni persiste — delega en `CanalController`.
 """
 from __future__ import annotations
 
+from views.widgets.responsive_layout import FlowLayout
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
@@ -56,9 +58,11 @@ class ProduccionView(QWidget):
         ))
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter = splitter
 
         # ----- SIDEBAR -----
         sidebar_widget = QWidget()
+        self._sidebar_widget = sidebar_widget
         sidebar_layout = QVBoxLayout(sidebar_widget)
         sidebar_layout.setContentsMargins(4, 4, 4, 4)
         sidebar_layout.setSpacing(6)
@@ -75,7 +79,7 @@ class ProduccionView(QWidget):
         )
         sidebar_layout.addWidget(self.lst_canales, 1)
 
-        sidebar_toolbar = QHBoxLayout()
+        sidebar_toolbar = FlowLayout()
         self.btn_new_canal = QPushButton("➕ Nuevo canal")
         self.btn_edit_canal = QPushButton("✏")
         self.btn_edit_canal.setToolTip("Editar canal seleccionado (nombre, URL, encoder, bitrate)")
@@ -129,6 +133,16 @@ class ProduccionView(QWidget):
         splitter.setSizes([260, 900])
 
         root.addWidget(splitter, 1)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "_splitter"):
+            return
+        orientation = Qt.Orientation.Vertical if self.width() < 900 else Qt.Orientation.Horizontal
+        if self._splitter.orientation() != orientation:
+            self._splitter.setOrientation(orientation)
+            self._sidebar_widget.setMaximumHeight(200 if orientation == Qt.Orientation.Vertical else 16777215)
+            self._splitter.setSizes([160, 600] if orientation == Qt.Orientation.Vertical else [260, 900])
 
     def _connect_signals(self):
         self.lst_canales.currentItemChanged.connect(self._on_sidebar_selection)

@@ -1,13 +1,15 @@
+from views.widgets.responsive_layout import FlowLayout
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout,
                              QSpinBox, QPushButton, QLineEdit, QGroupBox,
                              QHBoxLayout, QLabel, QScrollArea, QFrame,
-                             QComboBox)
+                             QComboBox, QGridLayout)
 
 
 class CalendarView(QWidget):
     def __init__(self, current_settings):
         super().__init__()
+        self.setProperty("responsive-scroll", True)
 
         # El layout raíz de la vista contiene un QScrollArea que envuelve todo.
         # Esto permite trabajar cómodamente en laptops de 14" donde el
@@ -43,6 +45,7 @@ class CalendarView(QWidget):
         # --- PANEL 1: CONSTRUCTOR AUTOMÁTICO EN OBS ---
         build_group = QGroupBox("1. Constructor Automático de Escena")
         build_layout = QFormLayout()
+        build_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.input_scene_name = QLineEdit(current_settings.get("cal_scene", "CUMPLEANOS DEL MES"))
         self.input_source_name = QLineEdit(current_settings.get("cal_source", "CIRCULO"))
@@ -89,6 +92,7 @@ class CalendarView(QWidget):
         # --- PANEL 2: SELECTOR DE PLANTILLA ACTIVA ---
         common_group = QGroupBox("2. Plantilla activa")
         common_layout = QFormLayout()
+        common_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.combo_template_weeks = QComboBox()
         self.combo_template_weeks.addItem("Auto (según el mes)", userData="auto")
@@ -112,7 +116,8 @@ class CalendarView(QWidget):
         # Cada panel guarda TODA la calibración de esa plantilla (X, Y, escala).
         # Así al cambiar entre imágenes con distinta geometría cada una recuerda
         # sus valores y no hay que reconfigurar.
-        templates_row = QHBoxLayout()
+        templates_row = QGridLayout()
+        self._templates_grid = templates_row
         templates_row.setSpacing(8)
 
         self._template_groups = {}
@@ -127,6 +132,7 @@ class CalendarView(QWidget):
             group = QGroupBox(title)
             group.setToolTip(tooltip)
             form = QFormLayout()
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
             spin_x_start = self._create_spinbox(
                 3000, current_settings.get(f"cal_x_start_{key}w", 298))
@@ -173,7 +179,8 @@ class CalendarView(QWidget):
             form.addRow("Comp. Y fila 0:", spin_dy_row0)
 
             group.setLayout(form)
-            templates_row.addWidget(group)
+            index = len(self._template_groups)
+            templates_row.addWidget(group, 0, index)
             self._template_groups[key] = group
 
         self.layout.addLayout(templates_row)
@@ -186,7 +193,7 @@ class CalendarView(QWidget):
         # --- FILA "LEER DEL MARCADOR EN OBS" ---
         # Arrastras el marcador en OBS, aquí indicas a qué día corresponde y
         # a qué campo aplicar. La app lee la transform y recalcula.
-        read_row = QHBoxLayout()
+        read_row = FlowLayout()
         read_row.setSpacing(6)
         read_row.addWidget(QLabel("Referencia día:"))
 
@@ -218,7 +225,7 @@ class CalendarView(QWidget):
         self.layout.addLayout(read_row)
 
         # --- BOTONES DE ACCIÓN ---
-        btn_layout = QHBoxLayout()
+        btn_layout = FlowLayout()
         self.btn_save = QPushButton("Guardar Calibración")
         self.btn_save.setProperty("role", "muted")
         self.btn_test = QPushButton("🎯 Mover Círculo a HOY")
@@ -258,3 +265,11 @@ class CalendarView(QWidget):
         spin.setValue(int(default_val))
         spin.setSuffix(" px")
         return spin
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "_template_groups"):
+            return
+        from views.widgets.responsive_layout import arrange_grid
+        columns = 3 if self.width() >= 1100 else 2 if self.width() >= 780 else 1
+        arrange_grid(self._templates_grid, list(self._template_groups.values()), columns)

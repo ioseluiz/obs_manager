@@ -1,3 +1,4 @@
+from views.widgets.responsive_layout import FlowLayout
 import logging
 import unicodedata
 
@@ -60,7 +61,7 @@ class SceneView(QWidget):
         ))
 
         # --- PANEL SUPERIOR: Controles de Reproducción ---
-        controls_layout = QHBoxLayout()
+        controls_layout = FlowLayout()
         controls_layout.setSpacing(4)
         self.btn_start = QPushButton("▶ Iniciar Rotador")
         self.btn_start.setProperty("role", "success")
@@ -125,6 +126,7 @@ class SceneView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.hideColumn(0)
+        self.table.horizontalHeader().setMinimumSectionSize(100)
         self.table.setColumnWidth(1, 100)
         self.table.setIconSize(QSize(80, 45))
         self.table.verticalHeader().setDefaultSectionSize(50)
@@ -138,7 +140,7 @@ class SceneView(QWidget):
         # Layout: [Agregar] [Editar] [Eliminar] │ [📋] [▲] [▼]
         # Duplicar/Subir/Bajar se compactan a icon-only + también viven en el
         # menú contextual de la tabla — clic derecho sobre una fila.
-        action_row = QHBoxLayout()
+        action_row = FlowLayout()
         action_row.setSpacing(4)
         self.btn_add = QPushButton("➕ Agregar Nueva Escena")
         self.btn_add.setProperty("role", "success")

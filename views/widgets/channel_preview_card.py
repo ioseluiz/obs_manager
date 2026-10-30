@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QStackedLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QStackedLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from views.theme import COLORS, SPACING
 from views.theme.icons import icon as load_icon
@@ -41,7 +41,7 @@ class ChannelPreviewCard(QWidget):
             f"border: 1px solid {COLORS['border_default']}; "
             f"border-radius: 10px; }}"
         )
-        self.setMinimumWidth(220)
+        self.setMinimumWidth(180)
 
         col = QVBoxLayout(self)
         col.setContentsMargins(SPACING["sm"], SPACING["sm"],
@@ -54,7 +54,7 @@ class ChannelPreviewCard(QWidget):
         # posteriores reemplazan el pixmap de fondo por la miniatura
         # real sin tocar el overlay (solo cambia la fuente del preview).
         self._preview = self._build_preview_block()
-        col.addWidget(self._preview)
+        col.addWidget(self._preview, 1)
 
         # Fila con nombre canal + chip En vivo.
         header = QHBoxLayout()
@@ -64,6 +64,7 @@ class ChannelPreviewCard(QWidget):
             f"background: transparent; color: {COLORS['text_primary']}; "
             "font-size: 13px; font-weight: bold;"
         )
+        self.lbl_name.setWordWrap(True)
         header.addWidget(self.lbl_name)
         header.addStretch(1)
         self.chip_live = QLabel("● En vivo", self)
@@ -81,23 +82,13 @@ class ChannelPreviewCard(QWidget):
 
     def _build_preview_block(self) -> QWidget:
         container = QWidget()
-        container.setFixedHeight(self.PREVIEW_HEIGHT)
-        container.setStyleSheet("background: transparent;")
-
-        # Fondo degradado — brand_navy → brand_navy_dark con setStyleSheet
-        # para que respete el border-radius del contenedor padre.
-        container.setAutoFillBackground(False)
-        bg = QLabel(container)
-        bg.setGeometry(0, 0, 2000, self.PREVIEW_HEIGHT)
-        pm = _gradient_pixmap(
-            600, self.PREVIEW_HEIGHT,
-            COLORS["brand_navy"], COLORS["brand_navy_dark"],
-        )
-        bg.setPixmap(pm)
-        bg.setScaledContents(True)
-        bg.setStyleSheet(
-            "background: transparent; border-radius: 6px;"
-        )
+        container.setMinimumHeight(self.PREVIEW_HEIGHT)
+        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        container.setObjectName("ChannelPreviewArea")
+        container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        container.setStyleSheet(
+            f"#ChannelPreviewArea {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, "
+            f"stop:0 {COLORS['brand_navy']}, stop:1 {COLORS['brand_navy_dark']}); border-radius: 6px; }}")
 
         overlay = QVBoxLayout(container)
         overlay.setContentsMargins(0, 0, 0, 0)

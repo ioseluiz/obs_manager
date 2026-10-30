@@ -18,6 +18,8 @@ canales regulares. Canal Principal usa `CanalPrincipalDetailView`.
 """
 from __future__ import annotations
 
+from views.widgets.responsive_layout import FlowLayout
+
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
@@ -84,6 +86,7 @@ class CanalDetailView(QWidget):
         self.lbl_nombre.setFont(f)
 
         self.lbl_url = QLabel("—")
+        self.lbl_url.setWordWrap(True)
         self.lbl_url.setProperty("role", "status-muted")
         self.lbl_status = QLabel("—")
         self.lbl_status.setProperty("role", "status-muted")
@@ -97,7 +100,7 @@ class CanalDetailView(QWidget):
         root.addWidget(header_frame)
 
         # Toolbar de transmisión y controles
-        toolbar = QHBoxLayout()
+        toolbar = FlowLayout()
 
         self.btn_transmit = QPushButton("▶ Transmitir")
         self.btn_transmit.setCheckable(True)
@@ -165,7 +168,7 @@ class CanalDetailView(QWidget):
         self.lbl_playlist_header.setFont(f)
         playlist_layout.addWidget(self.lbl_playlist_header)
 
-        item_toolbar = QHBoxLayout()
+        item_toolbar = FlowLayout()
         self.btn_add_item = QPushButton("➕ Agregar")
         self.btn_remove_item = QPushButton("➖ Quitar")
         self.btn_up_item = QPushButton("▲")

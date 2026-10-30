@@ -1,13 +1,15 @@
 """Diálogo para elegir una escena del rotador como item de canal."""
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QMessageBox, QSpinBox, QVBoxLayout,
 )
 
 
-class CanalItemPickerDialog(QDialog):
+class CanalItemPickerDialog(ResponsiveDialog):
     """Elige una `secuencia` (escena del rotador) para agregar como item de canal.
 
     Devuelve (secuencia_id, duracion_override_seg_o_None).

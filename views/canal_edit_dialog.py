@@ -1,6 +1,8 @@
 """Diálogo para crear o editar un canal multi-salida."""
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QMessageBox, QSpinBox, QVBoxLayout,
@@ -50,7 +52,7 @@ _DEFAULT_HEIGHT = 1080
 _DEFAULT_FPS = 30
 
 
-class CanalEditDialog(QDialog):
+class CanalEditDialog(ResponsiveDialog):
     """Modal para crear/editar un `canal`.
 
     Uso::

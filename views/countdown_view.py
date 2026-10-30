@@ -1,3 +1,5 @@
+from views.widgets.responsive_dialog import ResponsiveDialog
+from views.widgets.responsive_layout import FlowLayout
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                              QDateTimeEdit, QCheckBox, QGroupBox, QHeaderView,
@@ -83,7 +85,7 @@ class CountdownView(QWidget):
         ))
 
         # --- CONTROLES SUPERIORES ---
-        controls_layout = QHBoxLayout()
+        controls_layout = FlowLayout()
         self.btn_toggle_sync = QPushButton("▶ Iniciar Sincronización")
         self.btn_toggle_sync.setProperty("role", "success")
         controls_layout.addWidget(self.btn_toggle_sync)
@@ -107,7 +109,7 @@ class CountdownView(QWidget):
         self.layout.addWidget(self.table, 1)
 
         # --- BOTONES CRUD ---
-        btn_row = QHBoxLayout()
+        btn_row = FlowLayout()
         self.btn_add = QPushButton("➕ Nuevo Contador")
         self.btn_add.setProperty("role", "success")
         self.btn_edit = QPushButton("✏ Editar Seleccionado")
@@ -154,7 +156,7 @@ class CountdownView(QWidget):
         return list(self._source_choices)
 
 
-class MissingSourcesDialog(QDialog):
+class MissingSourcesDialog(ResponsiveDialog):
     """Lista fuentes faltantes con su escena destino y estilo por defecto."""
 
     _HALIGN = [("Izquierda", "left"), ("Centro", "center"), ("Derecha", "right")]
@@ -280,7 +282,7 @@ class MissingSourcesDialog(QDialog):
         }
 
 
-class CountdownEditDialog(QDialog):
+class CountdownEditDialog(ResponsiveDialog):
     """Diálogo modal para crear o editar un contador.
 
     countdown={} → modo "Nuevo Contador" (todos los campos vacíos, defaults).
@@ -365,7 +367,7 @@ class CountdownEditDialog(QDialog):
         }
 
 
-class CountdownLayoutDialog(QDialog):
+class CountdownLayoutDialog(ResponsiveDialog):
     """Ajusta posición, ancho y tamaño de la fila del contador con vista en vivo."""
 
     _DEBOUNCE_MS = 60

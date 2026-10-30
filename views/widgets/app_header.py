@@ -20,6 +20,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QGridLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
@@ -47,16 +48,18 @@ class AppHeader(QWidget):
             f"border-bottom: 1px solid {COLORS['border_default']}; }}"
         )
 
-        root = QHBoxLayout(self)
-        root.setContentsMargins(SPACING["xl"], SPACING["sm"],
-                                SPACING["xl"], SPACING["sm"])
-        root.setSpacing(SPACING["lg"])
-
-        root.addWidget(self._build_app_logo())
-        root.addStretch(1)
-        root.addWidget(self._build_actions())
-        root.addSpacing(SPACING["lg"])
-        root.addWidget(self._build_cp_brand())
+        self._root = QGridLayout(self)
+        self._root.setContentsMargins(SPACING["xl"], SPACING["sm"], SPACING["xl"], SPACING["sm"])
+        self._root.setHorizontalSpacing(SPACING["lg"])
+        self._root.setVerticalSpacing(SPACING["sm"])
+        self._app_logo = self._build_app_logo()
+        self._actions = self._build_actions()
+        self._cp_brand = self._build_cp_brand()
+        self._root.addWidget(self._app_logo, 0, 0, Qt.AlignmentFlag.AlignLeft)
+        self._root.addWidget(self._actions, 0, 1)
+        self._root.addWidget(self._cp_brand, 0, 2)
+        self._root.setColumnStretch(0, 1)
+        self._two_rows = None
 
     # ------------------------------------------------------------------
     # Secciones del header
@@ -72,6 +75,7 @@ class AppHeader(QWidget):
         row.setSpacing(SPACING["md"])
 
         icon_label = QLabel(container)
+        icon_label.setFixedSize(40, 40)
         pix = QPixmap(str(_LOGO_APP))
         if not pix.isNull():
             icon_label.setPixmap(pix.scaledToHeight(
@@ -152,7 +156,23 @@ class AppHeader(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Reservar ancho para textos completos de las acciones en laptops.
-        show_title = self.width() >= 1100
-        self._app_title.setVisible(show_title)
-        self._app_subtitle.setVisible(show_title)
+        if not hasattr(self, "_two_rows"):
+            return
+        two_rows = self.width() < 740
+        self._app_title.setVisible(self.width() >= 1100)
+        self._app_subtitle.setVisible(self.width() >= 1100)
+        if two_rows == self._two_rows:
+            return
+        self._two_rows = two_rows
+        for widget in (self._app_logo, self._actions, self._cp_brand):
+            self._root.removeWidget(widget)
+        if two_rows:
+            self.setFixedHeight(116)
+            self._root.addWidget(self._app_logo, 0, 0, Qt.AlignmentFlag.AlignLeft)
+            self._root.addWidget(self._cp_brand, 0, 1, Qt.AlignmentFlag.AlignRight)
+            self._root.addWidget(self._actions, 1, 0, 1, 2)
+        else:
+            self.setFixedHeight(HEADER_HEIGHT)
+            self._root.addWidget(self._app_logo, 0, 0, Qt.AlignmentFlag.AlignLeft)
+            self._root.addWidget(self._actions, 0, 1)
+            self._root.addWidget(self._cp_brand, 0, 2)

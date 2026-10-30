@@ -29,7 +29,7 @@ _BACKGROUND_PATH = (
     / "Canal de Panamá en azul profundo.png"
 )
 
-SIDEBAR_WIDTH = 240
+SIDEBAR_WIDTH = 256
 ITEM_HEIGHT = 48
 ICON_SIZE = 20
 
@@ -39,7 +39,10 @@ class _SectionButton(QPushButton):
 
     def __init__(self, name: str, icon_name: str, parent=None):
         super().__init__(parent)
+        self.section_name = name
         self.setText(f"  {name}")
+        self.setToolTip(name)
+        self.setAccessibleName(name)
         self.setIcon(icon(icon_name, color="#FFFFFF"))
         self.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self.setCheckable(True)
@@ -87,6 +90,7 @@ class Sidebar(QWidget):
         )
         self._background = QPixmap(str(_BACKGROUND_PATH))
 
+        self._compact = False
         self._items: list[_SectionButton] = []
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
@@ -116,12 +120,22 @@ class Sidebar(QWidget):
         """Agrega un item navegable al sidebar. Devuelve su indice."""
         idx = len(self._items)
         btn = _SectionButton(name, icon_name, self)
+        if self._compact:
+            btn.setText("")
         self._items.append(btn)
         self._group.addButton(btn, idx)
         self._items_layout.addWidget(btn)
         if idx == 0:
             btn.setChecked(True)
         return idx
+
+    def set_compact(self, compact: bool) -> None:
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self.setFixedWidth(72 if compact else SIDEBAR_WIDTH)
+        for button in self._items:
+            button.setText("" if compact else f"  {button.section_name}")
 
     def set_active(self, index: int) -> None:
         """Marca el item `index` como activo."""

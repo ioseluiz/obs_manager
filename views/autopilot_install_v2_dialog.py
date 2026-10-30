@@ -14,6 +14,8 @@ Para uso: `AutopilotInstallV2Dialog(client, parent).exec()`.
 """
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 import logging
 import shutil
 from pathlib import Path
@@ -40,7 +42,7 @@ log = logging.getLogger(__name__)
 _CONFIG_SOURCE_V1 = "__autopilot_config__"
 
 
-class AutopilotInstallV2Dialog(QDialog):
+class AutopilotInstallV2Dialog(ResponsiveDialog):
     def __init__(self, autopilot_client, parent=None):
         super().__init__(parent)
         self._ap = autopilot_client

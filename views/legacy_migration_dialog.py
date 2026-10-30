@@ -14,6 +14,8 @@ Opciones para el user:
 """
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -40,7 +42,7 @@ except Exception:  # pragma: no cover — fallback si theme no esta
     }
 
 
-class LegacyMigrationDialog(QDialog):
+class LegacyMigrationDialog(ResponsiveDialog):
     """Dialog modal para la migracion del rotador legacy."""
 
     # Resultado publico — el main_controller lee estos atributos tras

@@ -1,10 +1,11 @@
+from views.widgets.responsive_dialog import ResponsiveDialog
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QListWidget, QRadioButton, QButtonGroup,
                              QDialogButtonBox, QCheckBox)
 from PyQt6.QtCore import Qt
 
 
-class ImportPreviewDialog(QDialog):
+class ImportPreviewDialog(ResponsiveDialog):
     """Muestra el contenido del JSON y deja elegir modo de import."""
 
     MODE_APPEND = "append"
