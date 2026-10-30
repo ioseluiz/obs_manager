@@ -9,18 +9,33 @@ Alimenta la HomeView con datos reales de los modelos:
 - Estado Conexion: OBSClient.client is not None + version/host del
   settings_model.
 
-Refresco: cada 5 segundos. Fuentes son todas locales (SQLite + un
-flag en el OBSClient wrapper) — no hace WebSocket calls, es barato.
+Refresco: cada 5 segundos. Los KPIs se leen localmente; los datos de
+OBS se consultan en un worker para mantener disponible la interfaz.
 """
 from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QObject, QTimer
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
 log = logging.getLogger(__name__)
 
 REFRESH_INTERVAL_MS = 5000
+
+
+class _OBSStatusWorker(QThread):
+    status_ready = pyqtSignal(dict)
+
+    def __init__(self, obs_client, parent=None):
+        super().__init__(parent)
+        self.obs_client = obs_client
+        self.session = obs_client.client
+
+    def run(self):
+        try:
+            self.status_ready.emit(self.obs_client.get_connection_info())
+        except Exception as exc:
+            log.debug("No se pudo consultar el estado de OBS: %s", exc)
 
 
 class HomeController(QObject):
@@ -33,6 +48,9 @@ class HomeController(QObject):
         self._obs_client = obs_client
         self._settings_model = settings_model
         self._canal_controller = canal_controller
+        self._status_worker = None
+        self._displayed_session = None
+        self._stopped = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(REFRESH_INTERVAL_MS)
@@ -96,17 +114,32 @@ class HomeController(QObject):
         except (TypeError, ValueError):
             port = 0
 
-        scene_count = 0
-        if connected:
-            try:
-                scene_count = len(self._obs_client.list_scene_names() or [])
-            except Exception:
-                scene_count = 0
+        session = self._obs_client.client
+        if not connected or session is not self._displayed_session:
+            self._view.set_obs_card(connected=connected, host=host, port=port)
+            self._displayed_session = session
+        if not connected or self._stopped:
+            return
+        if self._status_worker is not None and self._status_worker.isRunning():
+            return
+        if self._status_worker is not None:
+            self._status_worker.deleteLater()
+        self._status_worker = _OBSStatusWorker(self._obs_client, self)
+        self._status_worker.status_ready.connect(self._apply_obs_info)
+        self._status_worker.start()
 
-        self._view.set_obs_card(
-            connected=connected, version="",
-            host=host, port=port, scene_count=scene_count,
-        )
+    def _apply_obs_info(self, info: dict) -> None:
+        worker = self.sender()
+        if self._stopped:
+            return
+        if worker.session is not self._obs_client.client:
+            if self._obs_client.client is None and not info['connected']:
+                self._displayed_session = None
+                self._view.set_obs_card(connected=False)
+                self._view.set_kpi_conexion(False)
+            return  # Ignorar respuestas de una sesión cerrada o reemplazada.
+        self._view.set_obs_card(**info)
+        self._view.set_kpi_conexion(info["connected"], info.get("version", ""))
 
     def _refresh_channel_previews(self) -> None:
         canales = self._canal_model.get_all_canales() or []
@@ -137,4 +170,7 @@ class HomeController(QObject):
     # ------------------------------------------------------------------
 
     def stop(self) -> None:
+        self._stopped = True
         self._timer.stop()
+        if self._status_worker is not None:
+            self._status_worker.wait()

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from views.theme import COLORS, SPACING
 from views.theme.icons import apply_icon
+from views.widgets.brand_image import BrandImage
 
 _ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
 _LOGO_APP = _ASSETS / "icono_app_tv.png"
@@ -81,11 +82,13 @@ class AppHeader(QWidget):
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(0)
         title = QLabel("OBS Automation Manager", container)
+        self._app_title = title
         title.setStyleSheet(
             f"color: {COLORS['text_primary']}; "
             "font-size: 18px; font-weight: bold;"
         )
         subtitle = QLabel("División de Ingeniería", container)
+        self._app_subtitle = subtitle
         subtitle.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-size: 12px;"
         )
@@ -116,6 +119,13 @@ class AppHeader(QWidget):
         for b in (self.btn_settings, self.btn_connect,
                    self.btn_export, self.btn_import):
             b.setMinimumHeight(36)
+            b.setMinimumWidth(b.sizeHint().width())
+            b.setStyleSheet(f"""
+                QPushButton {{ background: {COLORS['toolbar_primary']}; color: white; }}
+                QPushButton:hover {{ background: {COLORS['toolbar_hover']}; }}
+                QPushButton:pressed {{ background: {COLORS['toolbar_pressed']}; }}
+                QPushButton:disabled {{ background: {COLORS['bg_muted']}; color: {COLORS['text_muted']}; }}
+            """)
             row.addWidget(b)
 
         # Iconos corporativos tintados en blanco (fondo primary azul).
@@ -135,17 +145,14 @@ class AppHeader(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(SPACING["sm"])
 
-        logo = QLabel(container)
-        pix = QPixmap(str(_LOGO_CP))
-        if not pix.isNull():
-            logo.setPixmap(pix.scaledToHeight(
-                48, Qt.TransformationMode.SmoothTransformation))
-        else:
-            logo.setText("CANAL DE PANAMÁ")
-            logo.setStyleSheet(
-                f"color: {COLORS['brand_navy']}; font-weight: bold; "
-                "font-size: 14px; letter-spacing: 1px;"
-            )
+        logo = BrandImage(_LOGO_CP, 240, 44, container)
         row.addWidget(logo)
 
         return container
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Reservar ancho para textos completos de las acciones en laptops.
+        show_title = self.width() >= 1100
+        self._app_title.setVisible(show_title)
+        self._app_subtitle.setVisible(show_title)

@@ -1,5 +1,6 @@
 import logging
 import time
+import threading
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core import obs_launcher
@@ -143,10 +144,23 @@ class OBSWatchdog(QThread):
         self.max_backoff = max_backoff
         self._running = True
         self._connected_flag = False
+        self._suspended = False
+        self._reconnect_lock = threading.RLock()
+        self._generation = 0
 
     def mark_connected(self):
         """La UI notifica al watchdog que la conexión inicial fue exitosa."""
-        self._connected_flag = True
+        with self._reconnect_lock:
+            self._generation += 1
+            self._suspended = False
+            self._connected_flag = True
+
+    def suspend(self):
+        """Una desconexión manual no debe disparar reconexión automática."""
+        with self._reconnect_lock:
+            self._generation += 1
+            self._suspended = True
+            self._connected_flag = False
 
     def stop(self):
         self._running = False
@@ -160,6 +174,8 @@ class OBSWatchdog(QThread):
             if not self._connected_flag:
                 continue  # aún no ha habido primera conexión exitosa
             if not self._ping_ok():
+                if self._suspended:
+                    continue
                 log.warning("Watchdog detectó caída de OBS. Iniciando reconexión.")
                 self.connection_lost.emit("Se perdió la conexión con OBS")
                 self._connected_flag = False
@@ -179,20 +195,29 @@ class OBSWatchdog(QThread):
     def _reconnect_loop(self):
         backoff = 1
         attempt = 0
+        generation = self._generation
         while self._running:
-            attempt += 1
-            self.reconnect_attempt.emit(attempt)
-            log.info("Reconectando a OBS (intento %d, espera %ds)…", attempt, backoff)
-            settings = self.get_settings()
-            success, msg = self.obs_client.connect(
-                settings["host"], int(settings["port"]), settings["password"],
-                timeout=3.0,
-            )
-            if success:
-                log.info("Reconexión exitosa tras %d intento(s).", attempt)
-                self._connected_flag = True
-                self.connection_restored.emit()
-                return
-            log.warning("Reconexión intento %d falló: %s", attempt, msg)
+            # Cancelar también intentos dormidos si hubo desconexión manual
+            # seguida de una nueva conexión antes de terminar el backoff.
+            with self._reconnect_lock:
+                if self._suspended or generation != self._generation:
+                    return
+                attempt += 1
+                self.reconnect_attempt.emit(attempt)
+                log.info("Reconectando a OBS (intento %d, espera %ds)…", attempt, backoff)
+                settings = self.get_settings()
+                success, msg = self.obs_client.connect(
+                    settings["host"], int(settings["port"]), settings["password"],
+                    timeout=3.0,
+                )
+                if self._suspended:
+                    self.obs_client.disconnect()
+                    return
+                if success:
+                    log.info("Reconexión exitosa tras %d intento(s).", attempt)
+                    self._connected_flag = True
+                    self.connection_restored.emit()
+                    return
+                log.warning("Reconexión intento %d falló: %s", attempt, msg)
             time.sleep(backoff)
             backoff = min(backoff * 2, self.max_backoff)

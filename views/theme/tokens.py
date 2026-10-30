@@ -37,6 +37,9 @@ COLORS = {
     "brand_navy_dark": "#0A1F3D", # Sidebar oscuro del rediseno
     "brand_red": "#C8102E",       # Rojo CP (franjas, item sidebar activo)
     "brand_accent": "#0D6EFD",    # Azul moderno — botones primary
+    "toolbar_primary": "#0D3B65",  # Azul profundo de la vista previa
+    "toolbar_hover": "#164973",
+    "toolbar_pressed": "#0A2948",
 
     # Accion / estados
     "accent_primary": "#0D6EFD",

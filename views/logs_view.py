@@ -57,7 +57,7 @@ class LogsView(QWidget):
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.text.setFont(mono)
-        layout.addWidget(self.text)
+        layout.addWidget(self.text, 1)
 
         self._timer = QTimer()
         self._timer.timeout.connect(self.refresh_logs)

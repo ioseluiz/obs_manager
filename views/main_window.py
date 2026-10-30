@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 from views.theme import COLORS
 from views.theme.icons import apply_icon
 from views.widgets import AppHeader, Sidebar
+from views.widgets.brand_image import BrandImage
 
 _BASE = (
     Path(sys._MEIPASS)
@@ -186,20 +187,7 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(6, 2, 8, 2)
         row.setSpacing(8)
 
-        logo = QLabel()
-        pix = QPixmap(str(_LOGO_PATH))
-        if not pix.isNull():
-            logo.setPixmap(
-                pix.scaledToHeight(20, Qt.TransformationMode.SmoothTransformation)
-            )
-        else:
-            logo.setText("ACP")
-            logo.setStyleSheet(
-                f"color: {COLORS['brand_navy']}; font-weight: bold;"
-            )
-        logo.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
-        )
+        logo = BrandImage(_LOGO_PATH, 112, 22)
 
         credit = QLabel("División de Ingeniería - INI")
         credit.setStyleSheet(
@@ -218,14 +206,16 @@ class MainWindow(QMainWindow):
     # Estados del boton de conexion
     # ------------------------------------------------------------------
 
-    def _restyle_connect_button(self, text: str, tooltip: str,
-                                 bg: str) -> None:
-        """Aplica un estilo al btn_connect y re-tinta el icono en blanco
-        para no perder contraste tras el setStyleSheet dinamico."""
+    def _restyle_connect_button(self, text: str, tooltip: str) -> None:
+        """Conservar el azul profundo en todos los estados de conexión."""
         self.btn_connect.setText(text)
         self.btn_connect.setToolTip(tooltip)
         self.btn_connect.setStyleSheet(
-            f"background-color: {bg}; color: {COLORS['text_inverse']};"
+            f"QPushButton {{ background-color: {COLORS['toolbar_primary']}; "
+            f"color: {COLORS['text_inverse']}; }}"
+            f"QPushButton:hover {{ background-color: {COLORS['toolbar_hover']}; }}"
+            f"QPushButton:pressed {{ background-color: {COLORS['toolbar_pressed']}; }}"
+            f"QPushButton:disabled {{ background: {COLORS['bg_muted']}; color: {COLORS['text_muted']}; }}"
         )
         # Mantener icono blanco acorde al estado.
         apply_icon(self.btn_connect, "conectar", color="#FFFFFF")
@@ -234,7 +224,7 @@ class MainWindow(QMainWindow):
         """Cambia visualmente la UI dependiendo de si OBS esta conectado."""
         if connected:
             self._restyle_connect_button(
-                " Conectado", "Conectado a OBS", COLORS["state_success"],
+                " Conectado", "Conectado a OBS",
             )
             self.lbl_connection_status.setText("🟢 Conectado ")
             self.lbl_connection_status.setStyleSheet(
@@ -242,7 +232,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self._restyle_connect_button(
-                " Reconectar", "Reconectar a OBS", COLORS["accent_primary"],
+                " Reconectar", "Reconectar a OBS",
             )
             self.lbl_connection_status.setText("🔴 Desconectado ")
             self.lbl_connection_status.setStyleSheet(
@@ -253,7 +243,6 @@ class MainWindow(QMainWindow):
         """Estado intermedio: el watchdog esta reintentando."""
         self._restyle_connect_button(
             " Reconectando…", f"Reconectando (intento {attempt})",
-            COLORS["state_warning"],
         )
         self.lbl_connection_status.setText(
             f"🟠 Reconectando (intento {attempt}) "

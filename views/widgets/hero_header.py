@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor, QPainter, QPixmap
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from views.theme import COLORS, SPACING
 from views.theme.icons import icon as load_icon
@@ -81,6 +81,7 @@ class HeroHeader(QWidget):
             f"border-radius: 10px; }}"
         )
         self.setMinimumHeight(96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(SPACING["xl"], SPACING["md"],

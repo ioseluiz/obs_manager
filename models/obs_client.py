@@ -3,6 +3,7 @@ import os
 import base64
 import logging
 import threading
+import time
 
 from obsws_python.error import OBSSDKTimeoutError
 
@@ -63,16 +64,17 @@ class _GuardedClient:
             return attr
 
         def _guarded(*args, **kwargs):
-            try:
-                return attr(*args, **kwargs)
-            except _FATAL_SOCKET_ERRORS as e:
-                log.warning(
-                    "Socket de OBS inservible tras '%s' (%s: %s). Se descarta "
-                    "la sesión para que el watchdog reconecte.",
-                    name, type(e).__name__, e,
-                )
-                self._owner._invalidate_session(self)
-                raise
+            with self._owner._client_lock:
+                try:
+                    return attr(*args, **kwargs)
+                except _FATAL_SOCKET_ERRORS as e:
+                    log.warning(
+                        "Socket de OBS inservible tras '%s' (%s: %s). Se descarta "
+                        "la sesión para que el watchdog reconecte.",
+                        name, type(e).__name__, e,
+                    )
+                    self._owner._invalidate_session(self)
+                    raise
 
         return _guarded
 
@@ -82,12 +84,20 @@ class OBSClient:
         self.client = None
         self.canvas_width = 1920
         self.canvas_height = 1080
+        self.connected_since = None
+        self.connection_host = ""
+        self.connection_port = 0
         # Lock para serializar accesos al ReqClient (websocket-client no es
         # thread-safe). Cualquier método llamado desde múltiples threads
         # (worker de preview, timer del rotador, UI) debe usarlo.
         self._client_lock = threading.RLock()
 
     def connect(self, host="localhost", port=4455, password="", timeout=5.0):
+        with self._client_lock:
+            return self._connect_locked(host, port, password, timeout)
+
+    def _connect_locked(self, host, port, password, timeout):
+        self.connected_since = None
         # Cerrar cliente previo para evitar sockets huérfanos que rompen el handshake
         if self.client:
             try:
@@ -107,6 +117,9 @@ class OBSClient:
             # primer request expiró; no reportar éxito en ese caso.
             if not self.client:
                 return False, "La conexión expiró al leer los ajustes de video."
+            self.connected_since = time.monotonic()
+            self.connection_host = host
+            self.connection_port = port
             return True, "Conexión exitosa"
         except Exception as e:
             self.client = None
@@ -120,6 +133,7 @@ class OBSClient:
         """
         if self.client is guard:
             self.client = None
+            self.connected_since = None
 
     def _refresh_canvas_size(self):
         """Consulta dimensiones del canvas de OBS. Fallback silencioso a 1920x1080."""
@@ -131,9 +145,43 @@ class OBSClient:
             pass
 
     def disconnect(self):
-        if self.client:
-            self.client.disconnect()
-            self.client = None
+        with self._client_lock:
+            try:
+                if self.client:
+                    self.client.disconnect()
+            finally:
+                self.client = None
+                self.connected_since = None
+
+    def get_connection_info(self):
+        """Snapshot para Inicio. Consultar desde un worker, nunca desde la UI."""
+        with self._client_lock:
+            session = self.client
+            if session is None:
+                return {"connected": False}
+            info = {"connected": True, "version": "", "profile": "",
+                    "scene_count": None, "host": self.connection_host,
+                    "port": self.connection_port}
+            # Un fallo de una consulta opcional no oculta los demás datos.
+            for method, field, attr in [
+                ("get_version", "version", "obs_version"),
+                ("get_profile_list", "profile", "current_profile_name"),
+                ("get_scene_list", "scene_count", "scenes"),
+            ]:
+                if self.client is not session:
+                    break
+                try:
+                    response = getattr(session, method)()
+                    value = getattr(response, attr, None)
+                    info[field] = len(value or []) if field == "scene_count" else str(value or "")
+                except Exception as exc:
+                    log.debug("Estado OBS: %s falló: %s", method, exc)
+            if self.client is not session:
+                return {"connected": False}
+            info["connected_seconds"] = (
+                time.monotonic() - self.connected_since
+                if self.connected_since is not None else None)
+            return info
 
     # --- FUNCIONES DEL ROTADOR ---
     def change_scene(self, scene_name):

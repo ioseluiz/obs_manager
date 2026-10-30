@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from views.theme import COLORS, SPACING
 from views.widgets import ActionButton, ChannelPreviewCard, KpiCard
+from views.widgets.obs_status_card import ObsStatusCard
 
 
 class HomeView(QWidget):
@@ -190,73 +191,16 @@ class HomeView(QWidget):
         row = QHBoxLayout()
         row.setSpacing(SPACING["md"])
         row.addWidget(self._build_obs_status_card(), 1)
-        row.addWidget(self._build_channels_preview_card(), 2)
+        row.addWidget(self._build_channels_preview_card(), 1)
         return row
 
     def _build_obs_status_card(self) -> QWidget:
-        card = QWidget()
-        card.setObjectName("HomeObsCard")
-        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        card.setStyleSheet(
-            f"#HomeObsCard {{ background: {COLORS['bg_panel']}; "
-            f"border: 1px solid {COLORS['border_default']}; "
-            f"border-radius: 10px; }}"
-        )
-        col = QVBoxLayout(card)
-        col.setContentsMargins(SPACING["lg"], SPACING["lg"],
-                                SPACING["lg"], SPACING["lg"])
-        col.setSpacing(SPACING["sm"])
-
-        header = QHBoxLayout()
-        title = QLabel("Estado de OBS Studio")
-        title.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_primary']}; "
-            "font-size: 14px; font-weight: bold;"
-        )
-        self.lbl_obs_badge = QLabel("● Desconectado")
-        self.lbl_obs_badge.setStyleSheet(
-            f"background: transparent; color: {COLORS['state_muted']}; "
-            "font-size: 12px; font-weight: bold;"
-        )
-        header.addWidget(title)
-        header.addStretch(1)
-        header.addWidget(self.lbl_obs_badge)
-        col.addLayout(header)
-
-        self.lbl_obs_version = QLabel("—")
-        self.lbl_obs_version.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_secondary']}; "
-            "font-size: 13px;"
-        )
-        col.addWidget(self.lbl_obs_version)
-
-        self.lbl_obs_detail = QLabel("Sin información todavía.")
-        self.lbl_obs_detail.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_muted']}; "
-            "font-size: 12px;"
-        )
-        self.lbl_obs_detail.setWordWrap(True)
-        col.addWidget(self.lbl_obs_detail)
-
-        col.addStretch(1)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(SPACING["sm"])
-        self.btn_obs_settings = ActionButton(
-            "configuracion", "Configuración", "Ajustes de conexión",
-            variant="neutral",
-        )
-        self.btn_obs_disconnect = ActionButton(
-            "prohibido_desconectado", "Desconectar",
-            "Cerrar conexión OBS", variant="neutral",
-        )
-        btn_row.addWidget(self.btn_obs_settings, 1)
-        btn_row.addWidget(self.btn_obs_disconnect, 1)
-        col.addLayout(btn_row)
-
+        self.obs_card = ObsStatusCard()
+        self.btn_obs_settings = self.obs_card.btn_settings
+        self.btn_obs_disconnect = self.obs_card.btn_disconnect
         self.btn_obs_settings.clicked.connect(self.action_open_settings.emit)
         self.btn_obs_disconnect.clicked.connect(self.action_disconnect_obs.emit)
-        return card
+        return self.obs_card
 
     def _build_channels_preview_card(self) -> QWidget:
         wrap = QWidget()
@@ -319,31 +263,11 @@ class HomeView(QWidget):
             self.kpi_conexion.set_subtitle("Sin conectar")
 
     def set_obs_card(self, connected: bool, version: str = "",
-                      host: str = "", port: int = 0,
-                      scene_count: int = 0) -> None:
-        if connected:
-            self.lbl_obs_badge.setText("● Conectado")
-            self.lbl_obs_badge.setStyleSheet(
-                f"background: transparent; color: {COLORS['state_success']}; "
-                "font-size: 12px; font-weight: bold;"
-            )
-            self.lbl_obs_version.setText(
-                f"OBS Studio {version}" if version else "OBS Studio"
-            )
-            lines = []
-            if host and port:
-                lines.append(f"Dirección:  {host}:{port}")
-            if scene_count:
-                lines.append(f"Escenas cargadas:  {scene_count}")
-            self.lbl_obs_detail.setText("  ·  ".join(lines) if lines else "")
-        else:
-            self.lbl_obs_badge.setText("● Desconectado")
-            self.lbl_obs_badge.setStyleSheet(
-                f"background: transparent; color: {COLORS['state_muted']}; "
-                "font-size: 12px; font-weight: bold;"
-            )
-            self.lbl_obs_version.setText("—")
-            self.lbl_obs_detail.setText("Sin información todavía.")
+                     host: str = "", port: int = 0,
+                     scene_count: int | None = None, profile: str = "",
+                     connected_seconds: float | None = None) -> None:
+        self.obs_card.set_status(connected, version, host, port,
+                                 scene_count, profile, connected_seconds)
 
     def set_channel_previews(self, items: list[tuple[str, str, bool]],
                               total: int) -> None:
