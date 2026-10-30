@@ -62,15 +62,14 @@ class MainWindow(QMainWindow):
         # El contenido se reorganiza y ofrece scroll desde 640 × 480.
         self.setMinimumSize(640, 480)
 
-        # Tamano inicial adaptativo — 90% de la pantalla disponible, cap en
-        # 1500x880. En el rediseno con sidebar + header fijo necesitamos
-        # un poco mas de ancho minimo para que el contenido respire.
+        # Tamaño inicial solicitado; se limita al área útil si es menor.
+        self.resize(1366, 768)
         self._compact_mode = False
         screen = QApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
-            target_w = max(640, min(1500, int(avail.width() * 0.9)))
-            target_h = max(480, min(880, int(avail.height() * 0.9)))
+            target_w = max(640, min(1366, avail.width()))
+            target_h = max(480, min(768, avail.height()))
             self.resize(target_w, target_h)
             # Laptops de 14" suelen dar <=720px utiles. El flag lo consume
             # scene_view para compactar su propio toolbar interno.
