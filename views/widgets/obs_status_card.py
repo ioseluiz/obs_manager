@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButto
 from views.theme import COLORS
 from views.theme.icons import apply_icon
 from views.widgets.brand_image import BrandImage
+from core import version as app_version
 
 _LOGO = Path(__file__).resolve().parents[2] / "assets" / "logo_obs_studio_referencia.png"
 
@@ -21,7 +22,7 @@ class ObsStatusCard(QWidget):
             f"border: 1px solid {COLORS['border_default']}; border-radius: 10px; }}")
         col = QVBoxLayout(self)
         col.setContentsMargins(16, 16, 16, 16)
-        col.setSpacing(12)
+        col.setSpacing(10)
         header = QHBoxLayout()
         title = QLabel("Estado de OBS Studio")
         title.setStyleSheet("font-size: 14px; font-weight: bold;")
@@ -51,11 +52,16 @@ class ObsStatusCard(QWidget):
         self.version.setWordWrap(True)
         self.version.setStyleSheet(f"font-weight: bold; color: {COLORS['brand_navy']};")
         grid.addWidget(self.version, 0, 0, 1, 2)
+        self.app_version = QLabel(f"OBS Automation Manager v{app_version.APP_VERSION}")
+        self.app_version.setWordWrap(True)
+        self.app_version.setToolTip("Versión de esta aplicación, independiente de la versión de OBS Studio")
+        self.app_version.setStyleSheet(f"font-size: 12px; color: {COLORS['text_secondary']};")
+        grid.addWidget(self.app_version, 1, 0, 1, 2)
         self.values = {}
         for row, (key, caption) in enumerate([
             ("address", "Dirección:"), ("profile", "Perfil:"),
             ("scenes", "Escenas cargadas:"), ("elapsed", "Tiempo conectado:"),
-        ], 1):
+        ], 2):
             label = QLabel(caption)
             label.setStyleSheet(f"font-size: 12px; color: {COLORS['brand_navy']};")
             value = QLabel("—")

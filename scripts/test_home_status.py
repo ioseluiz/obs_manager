@@ -113,6 +113,18 @@ class CardControllerTests(unittest.TestCase):
         self.assertEqual(view.obs_card.values['profile'].text(), '—')
         view.close()
 
+    def test_app_version_follows_release_version_independently_of_obs(self):
+        from core import version
+        with patch.object(version, 'APP_VERSION', '2.4.1-rc.2'):
+            view = HomeView()
+        view.set_obs_card(True, '32.1.2')
+        self.assertIn('v2.4.1-rc.2', view.obs_card.app_version.text())
+        self.assertEqual(view.obs_card.version.text(), 'OBS Studio 32.1.2')
+        view.set_obs_card(False)
+        self.assertIn('v2.4.1-rc.2', view.obs_card.app_version.text())
+        self.assertEqual(view.obs_card.version.text(), 'OBS Studio')
+        view.close()
+
     def test_async_response_from_replaced_session_is_ignored(self):
         entered = threading.Event()
         release = threading.Event()

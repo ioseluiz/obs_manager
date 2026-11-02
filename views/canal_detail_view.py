@@ -9,7 +9,6 @@ muestra cuando el user selecciona un canal en el sidebar. Ofrece:
   resto de canales).
 - Controles ▶ Play / ⏮ Prev / ⏸ Pause / ⏭ Next / ⏹ Stop del rotador
   (delegan a los métodos de CanalController introducidos en R-1).
-- Botón 📡 Aplicar cambios (re-sincroniza escena + items en OBS).
 - Playlist del canal con reordenar (▲ ▼) y editar override de duración.
 - Item activo mostrado en tiempo real (poll cada 500ms del estado).
 
@@ -131,15 +130,7 @@ class CanalDetailView(QWidget):
 
         toolbar.addStretch(1)
 
-        self.btn_apply = QPushButton("📡 Aplicar cambios en OBS")
-        self.btn_apply.setMinimumHeight(32)
-        self.btn_apply.setToolTip(
-            "Re-sincroniza escena, filtro y scene items en OBS. Útil tras "
-            "editar items o si OBS se reinició."
-        )
-        toolbar.addWidget(self.btn_apply)
-
-        self.btn_diagnose = QPushButton("🔬 Diagnóstico")
+        self.btn_diagnose = QPushButton("Diagnóstico")
         self.btn_diagnose.setMinimumHeight(32)
         self.btn_diagnose.setToolTip(
             "Lee los settings efectivos del filtro udp_out desde OBS. "
@@ -147,7 +138,7 @@ class CanalDetailView(QWidget):
         )
         toolbar.addWidget(self.btn_diagnose)
 
-        self.btn_preview = QPushButton("🎥 Preview")
+        self.btn_preview = QPushButton("Preview")
         self.btn_preview.setMinimumHeight(32)
         self.btn_preview.setToolTip(
             "Abre una ventana con la salida UDP del canal. Usa Python + ffplay "
@@ -192,7 +183,6 @@ class CanalDetailView(QWidget):
         apply_icon(self.btn_pause, "⏸", color="#FFFFFF", size=20)
         apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
         apply_icon(self.btn_stop, "⏹", size=20)   # fallback nativo
-        apply_icon(self.btn_apply, "actualizar", color="#FFFFFF")
         apply_icon(self.btn_diagnose, "informacion", color="#FFFFFF")
         apply_icon(self.btn_preview, "imagen_vista_previa", color="#FFFFFF")
         apply_icon(self.btn_add_item, "➕", color="#FFFFFF")
@@ -231,7 +221,6 @@ class CanalDetailView(QWidget):
         self.btn_pause.toggled.connect(self._on_pause_toggled)
         self.btn_next.clicked.connect(self._on_next)
         self.btn_stop.clicked.connect(self._on_stop)
-        self.btn_apply.clicked.connect(self._on_apply)
         self.btn_diagnose.clicked.connect(self._on_diagnose)
         self.btn_preview.clicked.connect(self._on_preview)
 
@@ -294,7 +283,7 @@ class CanalDetailView(QWidget):
     def _set_controls_enabled(self, enabled: bool):
         for w in (self.btn_transmit, self.btn_play, self.btn_prev,
                   self.btn_pause, self.btn_next, self.btn_stop,
-                  self.btn_apply, self.btn_diagnose, self.btn_preview,
+                  self.btn_diagnose, self.btn_preview,
                   self.btn_add_item, self.btn_remove_item, self.btn_up_item,
                   self.btn_down_item, self.btn_edit_item):
             w.setEnabled(enabled)
@@ -452,16 +441,6 @@ class CanalDetailView(QWidget):
             return
         self.canal_controller.stop_rotator(self._canal_id)
         self._refresh_status_only()
-
-    def _on_apply(self):
-        if self._canal_id is None:
-            return
-        ok, msg = self.canal_controller.apply_canal(self._canal_id)
-        if not ok:
-            QMessageBox.warning(self, "Aplicar en OBS", msg)
-            return
-        self.canal_changed.emit(self._canal_id)
-        self.refresh()
 
     def _on_preview(self):
         """Lanza play_canal_local.py como subprocess para preview del UDP.

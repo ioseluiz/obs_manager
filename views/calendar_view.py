@@ -1,4 +1,5 @@
 from views.widgets.responsive_layout import FlowLayout
+from views.theme import COLORS
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout,
                              QSpinBox, QPushButton, QLineEdit, QGroupBox,
@@ -43,7 +44,7 @@ class CalendarView(QWidget):
         self.layout.setSpacing(8)
 
         # --- PANEL 1: CONSTRUCTOR AUTOMÁTICO EN OBS ---
-        build_group = QGroupBox("1. Constructor Automático de Escena")
+        build_group, build_content = self._build_section("1. Constructor Automático de Escena")
         build_layout = QFormLayout()
         build_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
@@ -86,11 +87,11 @@ class CalendarView(QWidget):
         build_layout.addRow("Día inicial (opcional):", self.spin_build_start_day)
         build_layout.addRow("", self.btn_build_scene)
 
-        build_group.setLayout(build_layout)
+        build_content.addLayout(build_layout)
         self.layout.addWidget(build_group)
 
         # --- PANEL 2: SELECTOR DE PLANTILLA ACTIVA ---
-        common_group = QGroupBox("2. Plantilla activa")
+        common_group, common_content = self._build_section("2. Plantilla activa")
         common_layout = QFormLayout()
         common_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
@@ -109,7 +110,7 @@ class CalendarView(QWidget):
 
         common_layout.addRow("Semanas de la imagen:", self.combo_template_weeks)
 
-        common_group.setLayout(common_layout)
+        common_content.addLayout(common_layout)
         self.layout.addWidget(common_group)
 
         # --- PANELES 3, 4 y 5 lado a lado: plantillas 4 / 5 / 6 semanas ---
@@ -129,7 +130,7 @@ class CalendarView(QWidget):
             ("6", "5. Plantilla 6 semanas",
              "Aplicada cuando la imagen del calendario ocupa 6 filas (celdas comprimidas)"),
         ):
-            group = QGroupBox(title)
+            group, content = self._build_section(title)
             group.setToolTip(tooltip)
             form = QFormLayout()
             form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
@@ -178,7 +179,7 @@ class CalendarView(QWidget):
             form.addRow("Comp. X fila 0:", spin_dx_row0)
             form.addRow("Comp. Y fila 0:", spin_dy_row0)
 
-            group.setLayout(form)
+            content.addLayout(form)
             index = len(self._template_groups)
             templates_row.addWidget(group, 0, index)
             self._template_groups[key] = group
@@ -258,6 +259,21 @@ class CalendarView(QWidget):
 
         self.layout.addLayout(btn_layout)
         self.layout.addStretch()
+
+    def _build_section(self, title):
+        group = QGroupBox()
+        group.setObjectName("CalendarSection")
+        group.setStyleSheet("QGroupBox#CalendarSection { margin-top: 0px; }")
+        content = QVBoxLayout(group)
+        content.setContentsMargins(12, 12, 12, 12)
+        content.setSpacing(10)
+        heading = QLabel(title)
+        heading.setObjectName("CalendarSectionTitle")
+        heading.setWordWrap(True)
+        heading.setStyleSheet(
+            f"color: {COLORS['toolbar_primary']}; font-size: 14px; font-weight: bold;")
+        content.addWidget(heading)
+        return group, content
 
     def _create_spinbox(self, max_val, default_val):
         spin = QSpinBox()
