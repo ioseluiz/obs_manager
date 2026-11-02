@@ -8,6 +8,7 @@ from views.styles import LIGHT_THEME_QSS
 from controllers.main_controller import MainController
 from core.database import init_db  # <-- Importamos el inicializador de la BD
 from core.logging_setup import setup_logging
+from core.version import APP_VERSION
 
 # sys._MEIPASS existe cuando PyInstaller empaqueta la app como --onefile
 BASE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parent
@@ -49,6 +50,7 @@ def main():
 
     # 2. Levantar la aplicación de PyQt
     app = QApplication(sys.argv)
+    app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(QIcon(str(BASE_DIR / "app_icon.ico")))
 
     # Forzamos el estilo Fusion como base neutra para luego sobreescribirlo

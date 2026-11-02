@@ -1,3 +1,4 @@
+from views.widgets.responsive_layout import FlowLayout
 import logging
 import unicodedata
 
@@ -60,7 +61,7 @@ class SceneView(QWidget):
         ))
 
         # --- PANEL SUPERIOR: Controles de Reproducción ---
-        controls_layout = QHBoxLayout()
+        controls_layout = FlowLayout()
         controls_layout.setSpacing(4)
         self.btn_start = QPushButton("▶ Iniciar Rotador")
         self.btn_start.setProperty("role", "success")
@@ -125,6 +126,7 @@ class SceneView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.hideColumn(0)
+        self.table.horizontalHeader().setMinimumSectionSize(100)
         self.table.setColumnWidth(1, 100)
         self.table.setIconSize(QSize(80, 45))
         self.table.verticalHeader().setDefaultSectionSize(50)
@@ -138,7 +140,7 @@ class SceneView(QWidget):
         # Layout: [Agregar] [Editar] [Eliminar] │ [📋] [▲] [▼]
         # Duplicar/Subir/Bajar se compactan a icon-only + también viven en el
         # menú contextual de la tabla — clic derecho sobre una fila.
-        action_row = QHBoxLayout()
+        action_row = FlowLayout()
         action_row.setSpacing(4)
         self.btn_add = QPushButton("➕ Agregar Nueva Escena")
         self.btn_add.setProperty("role", "success")
@@ -147,18 +149,25 @@ class SceneView(QWidget):
         self.btn_delete = QPushButton("🗑 Eliminar Seleccionada")
         self.btn_delete.setProperty("role", "danger")
 
-        self.btn_duplicate = QPushButton("📋")
+        self.btn_duplicate = QPushButton()
         self.btn_duplicate.setToolTip("Duplicar escena (Ctrl+D)")
         self.btn_duplicate.setProperty("role", "primary")
         self.btn_duplicate.setFixedWidth(ICON_BTN_WIDTH)
-        self.btn_move_up = QPushButton("▲")
+        self.btn_move_up = QPushButton()
         self.btn_move_up.setToolTip("Mover escena hacia arriba")
         self.btn_move_up.setProperty("role", "muted")
         self.btn_move_up.setFixedWidth(ICON_BTN_WIDTH)
-        self.btn_move_down = QPushButton("▼")
+        self.btn_move_down = QPushButton()
         self.btn_move_down.setToolTip("Mover escena hacia abajo")
         self.btn_move_down.setProperty("role", "muted")
         self.btn_move_down.setFixedWidth(ICON_BTN_WIDTH)
+
+        for button, name in ((self.btn_duplicate, "Duplicar escena"),
+                             (self.btn_move_up, "Subir escena"),
+                             (self.btn_move_down, "Bajar escena")):
+            button.setFixedSize(ICON_BTN_WIDTH, 28)
+            button.setStyleSheet("padding: 0px;")
+            button.setAccessibleName(name)
 
         action_row.addWidget(self.btn_add)
         action_row.addWidget(self.btn_edit)

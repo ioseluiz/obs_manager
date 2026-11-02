@@ -2,7 +2,7 @@
 
 Reemplaza al QTabWidget horizontal del MainWindow. Items navegables
 apilados verticalmente, item activo marcado con una barra roja de
-3px a la izquierda. Logo CP al pie.
+3px a la izquierda. Fotografía del Canal con su branding al pie.
 
 Expone la senal `section_selected(int)` que el MainWindow conecta al
 `QStackedWidget.setCurrentIndex` para cambiar la pagina visible.
@@ -11,12 +11,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup,
-    QFrame,
-    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -25,16 +23,13 @@ from PyQt6.QtWidgets import (
 from views.theme import COLORS, SPACING
 from views.theme.icons import icon
 
-# Logo del Canal procesado desde `CP_RGB_p_VerAlt (1).jpg` por el
-# script del commit de assets: silueta blanca con fondo transparente,
-# anti-aliasing preservado via alpha = 255 - luminosidad.
-_LOGO_PATH = (
+_BACKGROUND_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "assets"
-    / "logo_canal_blanco_transparent.png"
+    / "Canal de Panamá en azul profundo.png"
 )
 
-SIDEBAR_WIDTH = 240
+SIDEBAR_WIDTH = 256
 ITEM_HEIGHT = 48
 ICON_SIZE = 20
 
@@ -44,7 +39,10 @@ class _SectionButton(QPushButton):
 
     def __init__(self, name: str, icon_name: str, parent=None):
         super().__init__(parent)
+        self.section_name = name
         self.setText(f"  {name}")
+        self.setToolTip(name)
+        self.setAccessibleName(name)
         self.setIcon(icon(icon_name, color="#FFFFFF"))
         self.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self.setCheckable(True)
@@ -71,7 +69,7 @@ class _SectionButton(QPushButton):
                 background-color: rgba(255, 255, 255, 25);
             }}
             QPushButton:checked {{
-                background-color: rgba(255, 255, 255, 40);
+                background-color: rgba(32, 89, 139, 190);
                 border-left: 3px solid {c["brand_red"]};
                 font-weight: bold;
             }}
@@ -90,7 +88,9 @@ class Sidebar(QWidget):
         self.setStyleSheet(
             f"Sidebar {{ background-color: {COLORS['brand_navy_dark']}; }}"
         )
+        self._background = QPixmap(str(_BACKGROUND_PATH))
 
+        self._compact = False
         self._items: list[_SectionButton] = []
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
@@ -110,8 +110,7 @@ class Sidebar(QWidget):
 
         root.addStretch(1)
 
-        # Logo CP al pie.
-        root.addWidget(self._build_logo())
+        # La imagen original ya incluye el logo y el crédito de Ingeniería.
 
     # ------------------------------------------------------------------
     # API publica
@@ -121,12 +120,22 @@ class Sidebar(QWidget):
         """Agrega un item navegable al sidebar. Devuelve su indice."""
         idx = len(self._items)
         btn = _SectionButton(name, icon_name, self)
+        if self._compact:
+            btn.setText("")
         self._items.append(btn)
         self._group.addButton(btn, idx)
         self._items_layout.addWidget(btn)
         if idx == 0:
             btn.setChecked(True)
         return idx
+
+    def set_compact(self, compact: bool) -> None:
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self.setFixedWidth(72 if compact else SIDEBAR_WIDTH)
+        for button in self._items:
+            button.setText("" if compact else f"  {button.section_name}")
 
     def set_active(self, index: int) -> None:
         """Marca el item `index` como activo."""
@@ -137,36 +146,18 @@ class Sidebar(QWidget):
     # Internos
     # ------------------------------------------------------------------
 
-    def _build_logo(self) -> QWidget:
-        container = QFrame(self)
-        container.setStyleSheet("QFrame { background-color: transparent; border: none; }")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(SPACING["lg"], SPACING["sm"],
-                                    SPACING["lg"], 0)
-        layout.setSpacing(SPACING["xs"])
-        layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-        logo = QLabel(container)
-        pix = QPixmap(str(_LOGO_PATH))
-        if not pix.isNull():
-            logo.setPixmap(pix.scaledToWidth(
-                140, Qt.TransformationMode.SmoothTransformation))
-            logo.setStyleSheet("background: transparent;")
-        else:
-            logo.setText("CANAL DE PANAMÁ")
-            logo.setStyleSheet(
-                f"background: transparent; color: {COLORS['text_inverse']}; "
-                "font-weight: bold; letter-spacing: 1px;"
-            )
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(logo)
-
-        subtitle = QLabel("DIVISIÓN DE INGENIERÍA", container)
-        subtitle.setStyleSheet(
-            "background: transparent; color: rgba(255, 255, 255, 180); "
-            "font-size: 10px; letter-spacing: 2px;"
-        )
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-
-        return container
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.fillRect(self.rect(), QColor(COLORS['brand_navy_dark']))
+        if self._background.isNull():
+            return
+        # Ajustar por ancho conserva la foto y el branding completos al pie.
+        height = self.width() * self._background.height() / self._background.width()
+        top = self.height() - height
+        painter.drawPixmap(QRectF(0, top, self.width(), height),
+                           self._background, QRectF(self._background.rect()))
+        fade = QLinearGradient(0, top, 0, top + height * 0.35)
+        fade.setColorAt(0, QColor(COLORS['brand_navy_dark']))
+        fade.setColorAt(1, QColor(10, 31, 61, 0))
+        painter.fillRect(QRectF(0, top, self.width(), height * 0.35), fade)

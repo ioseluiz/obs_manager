@@ -18,6 +18,8 @@ pasa dentro del worker QThread.
 """
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 import logging
 import threading
 from typing import Iterable
@@ -65,7 +67,7 @@ class _CalibrationWorker(QThread):
             self.finished_error.emit(str(e))
 
 
-class CalibrationDialog(QDialog):
+class CalibrationDialog(ResponsiveDialog):
     """Diálogo modal que ejecuta y muestra progreso de la calibración."""
 
     def __init__(

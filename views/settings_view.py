@@ -1,7 +1,7 @@
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
                              QPushButton, QHBoxLayout, QCheckBox, QLabel,
-                             QFileDialog, QMessageBox, QGroupBox)
+                             QFileDialog, QMessageBox, QGroupBox, QScrollArea, QWidget, QFrame)
 
 from core import obs_launcher
 
@@ -17,14 +17,23 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Conexión OBS")
-        self.setFixedSize(520, 560)
+        self.setMinimumSize(360, 280)
+        self.resize(520, 560)
 
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+        layout = QVBoxLayout(content)
 
         # --- Conexión WebSocket ---
         conn_group = QGroupBox("Conexión WebSocket")
         conn_layout = QVBoxLayout(conn_group)
         form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.host_input = QLineEdit(current_settings.get("host", ""))
         self.host_input.setPlaceholderText(
@@ -132,7 +141,7 @@ class SettingsDialog(QDialog):
         self.btn_cancel.setProperty("role", "muted")
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addWidget(self.btn_save)
-        layout.addLayout(btn_layout)
+        root.addLayout(btn_layout)
 
         # Conexiones
         self.btn_cancel.clicked.connect(self.reject)

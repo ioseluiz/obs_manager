@@ -1,13 +1,15 @@
 """Diálogo mínimo para editar el override de duración de un canal_item."""
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QSpinBox,
     QVBoxLayout,
 )
 
 
-class CanalItemEditDialog(QDialog):
+class CanalItemEditDialog(ResponsiveDialog):
     """Editar la `duracion_override_seg` de un canal_item.
 
     Devuelve el nuevo valor (int en segundos) o `None` si el usuario elige

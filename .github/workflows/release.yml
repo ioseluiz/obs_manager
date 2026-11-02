@@ -42,6 +42,10 @@ jobs:
           "VERSION_NUMERIC=$verNumeric"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "IS_PRERELEASE=$isPrerelease"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+          # Incluir en la aplicación la misma versión que usa el instalador.
+          $versionLiteral = ConvertTo-Json -InputObject $ver -Compress
+          Set-Content -LiteralPath core/version.py -Encoding utf8 -Value "APP_VERSION = $versionLiteral"
+
           Write-Host "Tag: $tag"
           Write-Host "Version: $ver (numeric: $verNumeric, prerelease: $isPrerelease)"
 

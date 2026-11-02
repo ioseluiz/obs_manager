@@ -11,6 +11,8 @@ Regla firme: nunca auto-degrada. El dialog sólo informa.
 """
 from __future__ import annotations
 
+from views.widgets.responsive_dialog import ResponsiveDialog
+
 from typing import Callable
 
 from PyQt6.QtCore import Qt
@@ -21,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 
-class CapacityValidationDialog(QDialog):
+class CapacityValidationDialog(ResponsiveDialog):
     """Muestra un ValidationResult con overloaded_encoders != []."""
 
     def __init__(

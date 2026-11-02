@@ -162,8 +162,8 @@ class MainController:
             lambda: self.main_window.set_active_section(1)
         )
         self.home_view.action_open_settings.connect(self.open_settings)
-        # action_disconnect_obs no se conecta: no hay desconexion
-        # explicita en v1 — el watchdog gestiona la conexion.
+        self._manually_disconnected = False
+        self.home_view.action_disconnect_obs.connect(self.disconnect_from_obs)
 
         self._connect_signals()
 
@@ -227,6 +227,11 @@ class MainController:
         worker.start()
 
     def connect_to_obs(self):
+        worker = getattr(self, "worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        self.watchdog.suspend()
+        self._manually_disconnected = False
         self.main_window.statusBar().showMessage("Conectando a OBS...")
         self.main_window.btn_connect.setEnabled(False) 
         
@@ -242,7 +247,29 @@ class MainController:
         self.worker.connection_error.connect(self._on_connection_error)
         self.worker.start()
 
+    def disconnect_from_obs(self):
+        self._manually_disconnected = True
+        self.watchdog.suspend()
+        # Entregar el control al Lua antes de cerrar la sesión cliente.
+        try:
+            self.autopilot_v2.stop(publish_handoff=True)
+        except Exception as exc:
+            log.warning("No se pudo publicar el handoff al desconectar: %s", exc)
+        self.canal_controller.shutdown_keeping_filters()
+        self._stop_lag_watchdog()
+        self._autopilot_v2_status_timer.stop()
+        self.obs_client.disconnect()
+        self.main_window.set_connection_ui(False)
+        self.main_window.clear_canvas_size()
+        self.main_window.set_autopilot_v2_ui(None)
+        self.main_window.statusBar().showMessage("Desconectado de OBS", 5000)
+        self.home_controller.refresh()
+
     def _on_connection_success(self, message):
+        if self._manually_disconnected:
+            self.obs_client.disconnect()
+            self.main_window.btn_connect.setEnabled(True)
+            return
         self.main_window.statusBar().showMessage("Conectado a OBS", 5000)
         self.main_window.btn_connect.setEnabled(True)
         # Llamamos a la función que diseñamos para actualizar toda la UI visual
@@ -251,6 +278,7 @@ class MainController:
             self.obs_client.canvas_width, self.obs_client.canvas_height
         )
         self.watchdog.mark_connected()
+        self.home_controller.refresh()
         log.info("Conexión inicial a OBS establecida.")
         # Poblar combos del módulo de contadores con las escenas / text sources de OBS
         self.countdown_controller.refresh_from_obs()
@@ -282,6 +310,8 @@ class MainController:
         self._autopilot_v2_status_timer.start()
 
     def _on_connection_lost(self, message):
+        if self._manually_disconnected:
+            return
         log.warning("Caída de OBS detectada por watchdog: %s", message)
         self.main_window.statusBar().showMessage("Conexión con OBS perdida", 10000)
         self.main_window.set_connection_ui(False)
@@ -300,9 +330,14 @@ class MainController:
         self.main_window.set_autopilot_v2_ui(None)
 
     def _on_reconnect_attempt(self, attempt):
+        if self._manually_disconnected:
+            return
         self.main_window.set_reconnecting_ui(attempt)
 
     def _on_connection_restored(self):
+        if self._manually_disconnected:
+            return
+        self.home_controller.refresh()
         log.info("Conexión con OBS restaurada.")
         self.main_window.statusBar().showMessage("Reconectado a OBS", 5000)
         self.main_window.set_connection_ui(True)
@@ -953,6 +988,7 @@ class MainController:
         se remueven escenas — las pantallas remotas siguen recibiendo el
         último frame del canal aunque la app se cierre.
         """
+        self.home_controller.stop()
         try:
             self.watchdog.stop()
             self.watchdog.wait(2000)

@@ -25,13 +25,15 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QStackedWidget,
+    QScrollArea,
+    QFrame,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -40,6 +42,7 @@ from PyQt6.QtWidgets import (
 from views.theme import COLORS
 from views.theme.icons import apply_icon
 from views.widgets import AppHeader, Sidebar
+from views.widgets.brand_image import BrandImage
 
 _BASE = (
     Path(sys._MEIPASS)
@@ -56,19 +59,17 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("OBS Automation Manager - INI")
         self.setWindowIcon(QIcon(str(_ICON_PATH)))
-        # Min height 640px permite trabajar en laptops tipicos (1366x768 con
-        # taskbar visible da ~700-720px de area util).
-        self.setMinimumSize(1180, 680)
+        # El contenido se reorganiza y ofrece scroll desde 640 × 480.
+        self.setMinimumSize(640, 480)
 
-        # Tamano inicial adaptativo — 90% de la pantalla disponible, cap en
-        # 1500x880. En el rediseno con sidebar + header fijo necesitamos
-        # un poco mas de ancho minimo para que el contenido respire.
+        # Tamaño inicial solicitado; se limita al área útil si es menor.
+        self.resize(1366, 768)
         self._compact_mode = False
         screen = QApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
-            target_w = max(1180, min(1500, int(avail.width() * 0.9)))
-            target_h = max(680, min(880, int(avail.height() * 0.9)))
+            target_w = max(640, min(1366, avail.width()))
+            target_h = max(480, min(768, avail.height()))
             self.resize(target_w, target_h)
             # Laptops de 14" suelen dar <=720px utiles. El flag lo consume
             # scene_view para compactar su propio toolbar interno.
@@ -142,6 +143,13 @@ class MainWindow(QMainWindow):
         )
         self.statusBar().addPermanentWidget(self.lbl_connection_status)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "sidebar"):
+            self.sidebar.set_compact(self.width() < 1100)
+        if hasattr(self, "_credit_text"):
+            self._credit_text.setVisible(self.width() >= 1000)
+
     # ------------------------------------------------------------------
     # API publica: navegacion
     # ------------------------------------------------------------------
@@ -155,7 +163,15 @@ class MainWindow(QMainWindow):
         Devuelve el indice de la seccion (consistente entre sidebar y
         stack porque se agregan en el mismo orden).
         """
-        idx = self.stack.addWidget(view)
+        page = view
+        if not view.property("responsive-scroll"):
+            viewport = QScrollArea()
+            viewport.setObjectName("SectionViewport")
+            viewport.setFrameShape(QFrame.Shape.NoFrame)
+            viewport.setWidgetResizable(True)
+            viewport.setWidget(view)
+            page = viewport
+        idx = self.stack.addWidget(page)
         sidebar_idx = self.sidebar.add_section(name, icon_name)
         assert idx == sidebar_idx, "stack y sidebar divergieron"
         return idx
@@ -186,22 +202,10 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(6, 2, 8, 2)
         row.setSpacing(8)
 
-        logo = QLabel()
-        pix = QPixmap(str(_LOGO_PATH))
-        if not pix.isNull():
-            logo.setPixmap(
-                pix.scaledToHeight(20, Qt.TransformationMode.SmoothTransformation)
-            )
-        else:
-            logo.setText("ACP")
-            logo.setStyleSheet(
-                f"color: {COLORS['brand_navy']}; font-weight: bold;"
-            )
-        logo.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
-        )
+        logo = BrandImage(_LOGO_PATH, 112, 22)
 
         credit = QLabel("División de Ingeniería - INI")
+        self._credit_text = credit
         credit.setStyleSheet(
             f"color: {COLORS['brand_navy']}; font-size: 11px; "
             "font-weight: 600; letter-spacing: 0.3px;"
@@ -218,14 +222,16 @@ class MainWindow(QMainWindow):
     # Estados del boton de conexion
     # ------------------------------------------------------------------
 
-    def _restyle_connect_button(self, text: str, tooltip: str,
-                                 bg: str) -> None:
-        """Aplica un estilo al btn_connect y re-tinta el icono en blanco
-        para no perder contraste tras el setStyleSheet dinamico."""
+    def _restyle_connect_button(self, text: str, tooltip: str) -> None:
+        """Conservar el azul profundo en todos los estados de conexión."""
         self.btn_connect.setText(text)
         self.btn_connect.setToolTip(tooltip)
         self.btn_connect.setStyleSheet(
-            f"background-color: {bg}; color: {COLORS['text_inverse']};"
+            f"QPushButton {{ background-color: {COLORS['toolbar_primary']}; "
+            f"color: {COLORS['text_inverse']}; }}"
+            f"QPushButton:hover {{ background-color: {COLORS['toolbar_hover']}; }}"
+            f"QPushButton:pressed {{ background-color: {COLORS['toolbar_pressed']}; }}"
+            f"QPushButton:disabled {{ background: {COLORS['bg_muted']}; color: {COLORS['text_muted']}; }}"
         )
         # Mantener icono blanco acorde al estado.
         apply_icon(self.btn_connect, "conectar", color="#FFFFFF")
@@ -234,7 +240,7 @@ class MainWindow(QMainWindow):
         """Cambia visualmente la UI dependiendo de si OBS esta conectado."""
         if connected:
             self._restyle_connect_button(
-                " Conectado", "Conectado a OBS", COLORS["state_success"],
+                " Conectado", "Conectado a OBS",
             )
             self.lbl_connection_status.setText("🟢 Conectado ")
             self.lbl_connection_status.setStyleSheet(
@@ -242,7 +248,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self._restyle_connect_button(
-                " Reconectar", "Reconectar a OBS", COLORS["accent_primary"],
+                " Reconectar", "Reconectar a OBS",
             )
             self.lbl_connection_status.setText("🔴 Desconectado ")
             self.lbl_connection_status.setStyleSheet(
@@ -253,7 +259,6 @@ class MainWindow(QMainWindow):
         """Estado intermedio: el watchdog esta reintentando."""
         self._restyle_connect_button(
             " Reconectando…", f"Reconectando (intento {attempt})",
-            COLORS["state_warning"],
         )
         self.lbl_connection_status.setText(
             f"🟠 Reconectando (intento {attempt}) "

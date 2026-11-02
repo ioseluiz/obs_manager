@@ -1,3 +1,4 @@
+from views.widgets.responsive_dialog import ResponsiveDialog
 import calendar
 import datetime
 import re
@@ -61,7 +62,7 @@ def parse_month_year_from_scene_name(scene_name, fallback_year=None):
     return year, month
 
 
-class CalendarSimulationDialog(QDialog):
+class CalendarSimulationDialog(ResponsiveDialog):
     """Diálogo no-modal para simular el avance del indicador de día.
 
     El diálogo NO habla con OBS: solo capta parámetros y emite señales.
