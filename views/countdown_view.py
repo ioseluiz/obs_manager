@@ -114,7 +114,7 @@ class CountdownView(QWidget):
         self.btn_add.setProperty("role", "success")
         self.btn_edit = QPushButton("✏ Editar Seleccionado")
         self.btn_edit.setProperty("role", "primary")
-        self.btn_position = QPushButton("🎯 Ajustar Posición")
+        self.btn_position = QPushButton("Ajustar Posición")
         self.btn_position.setProperty("role", "primary")
         self.btn_delete = QPushButton("🗑 Eliminar Seleccionado")
         self.btn_delete.setProperty("role", "danger")
