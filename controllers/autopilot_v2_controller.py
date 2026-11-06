@@ -226,8 +226,11 @@ class AutopilotV2Controller(QObject):
     def _on_heartbeat_tick(self) -> None:
         if not self._enabled:
             return
+        previously_present = self._script_present
         if not self._ensure_script_detected():
             return
+        if previously_present is not True:
+            self._do_publish(bump_version=True)
         try:
             self._ap.send_heartbeat()
         except Exception as e:
@@ -243,14 +246,11 @@ class AutopilotV2Controller(QObject):
     # ------------------------------------------------------------------
 
     def _ensure_script_detected(self) -> bool:
-        """Chequea una vez por arranque si el Lua v2 esta instalado.
-
-        Si no esta, no vuelve a intentar en este ciclo de start/stop —
-        el proximo `start()` resetea `_script_present` y re-chequea.
-        """
-        if self._script_present is None:
+        """Detecta el Lua sin errores esperados; reintenta si se instala en vivo."""
+        if self._script_present is not True:
+            first_check = self._script_present is None
             self._script_present = self._ap.is_installed()
-            if not self._script_present:
+            if not self._script_present and first_check:
                 log.info("Autopilot v2 Lua no detectado en OBS; publish/hb inactivos")
         return self._script_present
 

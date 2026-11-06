@@ -93,6 +93,8 @@ class OBSClient:
         self._client_lock = threading.RLock()
 
     def connect(self, host="localhost", port=4455, password="", timeout=5.0):
+        from core.logging_setup import register_secret
+        register_secret(password)
         with self._client_lock:
             return self._connect_locked(host, port, password, timeout)
 

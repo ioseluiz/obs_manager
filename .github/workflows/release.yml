@@ -28,6 +28,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Validate runtime regressions
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        run: |
+          foreach ($test in @('test_home_status.py', 'test_runtime_repairs.py', 'test_autopilot_client_v2.py', 'test_autopilot_v2_controller.py', 'test_canal_detail_view_smoke.py')) {
+            python "scripts/$test"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Extract version info from tag
         id: version
         shell: pwsh
@@ -52,6 +63,8 @@ jobs:
       - name: Build application with PyInstaller (--onedir via spec)
         shell: pwsh
         run: |
+          python scripts/bundle_ffplay.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pyinstaller OBS_Automation_Manager.spec
 
       - name: Verify PyInstaller output
@@ -62,6 +75,10 @@ jobs:
             Write-Error "Build failed: $exe not found"
             exit 1
           }
+          $player = "dist\OBS_Automation_Manager\_internal\vendor\ffmpeg\bin\ffplay.exe"
+          if (-not (Test-Path $player)) { throw "Bundled ffplay missing" }
+          & $player -version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled ffplay cannot run" }
           $count = (Get-ChildItem "dist\OBS_Automation_Manager" -Recurse -File | Measure-Object).Count
           Write-Host "PyInstaller output OK ($count archivos)"
 
@@ -114,6 +131,8 @@ jobs:
             ### ⚙️ Requisitos
             - Windows 10/11 (x64)
             - OBS Studio 28.0+ con WebSocket habilitado
+            - Preview incluye ffplay; no requiere instalar FFmpeg ni modificar PATH.
+            - Autopilot requiere cargar obs_scripts/autopilot_v2.lua en el equipo con OBS (Ajustes → Instalar / Verificar Autopilot v2).
 
             ### 🔄 Actualización
             Ejecuta el instalador de la nueva versión sobre la instalación existente.

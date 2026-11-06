@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QThread
 from PyQt6.QtGui import QFontDatabase
 from controllers.home_controller import HomeController
 from core.workers import OBSWatchdog
@@ -149,6 +150,28 @@ class CardControllerTests(unittest.TestCase):
         self.app.processEvents()
         view.set_obs_card.assert_not_called()
         controller.stop()
+
+    def test_connected_response_does_not_depend_on_qt_sender_wrapper(self):
+        obs = Mock(client=object())
+        info = {'connected': True, 'version': '32.1.2', 'profile': 'Canal'}
+        obs.get_connection_info.return_value = info
+        view = Mock()
+        # Queued Qt signals may expose a base QThread wrapper as sender,
+        # without the Python attributes on our worker subclass.
+        sender_wrapper = QThread()
+        with patch.object(HomeController, 'sender', return_value=sender_wrapper), \
+                patch('sys.excepthook') as uncaught:
+            controller = HomeController(
+                view, Mock(get_all_canales=lambda: []),
+                Mock(get_all_scenes=lambda: []), obs,
+                Mock(get_settings=lambda: {}), Mock())
+            self.assertTrue(controller._status_worker.wait(2000))
+            view.set_obs_card.reset_mock()
+            self.app.processEvents()
+            controller.stop()
+            uncaught.assert_not_called()
+        view.set_obs_card.assert_called_once_with(**info)
+        view.set_kpi_conexion.assert_called_with(True, '32.1.2')
 
     def test_logs_header_keeps_same_height_as_other_sections(self):
         logs = LogsView()

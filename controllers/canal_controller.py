@@ -227,7 +227,12 @@ class CanalController(QObject):
         except Exception as e:
             log.warning("get_scene_item_list falló en %s: %s", scene_name, e)
             current = []
+        # Countdown text overlays belong to their configured scene, not to
+        # the rotating playlist. Preserve their scene items and transforms.
+        overlays = [si for si in current if (si.get("inputKind") or "").startswith("text_")]
         for si in current:
+            if si in overlays:
+                continue
             try:
                 client.remove_scene_item(scene_name, si["sceneItemId"])
             except Exception as e:
@@ -247,38 +252,28 @@ class CanalController(QObject):
                     scene_name, eff["secuencia_nombre"], e,
                 )
 
-        # 3. Placeholder (color source negro) — se muestra cuando nada está
-        # en su ventana horaria. Se crea el input si no existe (idempotente
-        # mediante try/except).
+        # Reuse an existing placeholder input without provoking code 601.
         placeholder_input = f"{scene_name}{_PLACEHOLDER_SUFFIX}"
+        placeholder_sid = None
         try:
-            client.create_input(
-                scene_name, placeholder_input, "color_source_v3",
-                {"color": 0xFF000000, "width": 1920, "height": 1080}, False,
-            )
-            # create_input ya crea la scene item; obtener su id via get_scene_item_id
-            try:
-                placeholder_sid = int(
-                    client.get_scene_item_id(scene_name, placeholder_input).scene_item_id
-                )
-            except Exception:
-                placeholder_sid = None
-        except Exception as e:
-            # Ya existía: crear scene item que referencia el input existente
-            msg = str(e).lower()
-            if "already exists" in msg or "600" in msg:
-                try:
-                    resp = client.create_scene_item(
-                        scene_name, placeholder_input, enabled=False,
-                    )
-                    placeholder_sid = int(resp.scene_item_id)
-                except Exception as e2:
-                    log.warning("No se pudo crear scene item de placeholder: %s", e2)
-                    placeholder_sid = None
+            existing_inputs = {item["inputName"] for item in client.get_input_list().inputs}
+            if placeholder_input in existing_inputs:
+                response = client.create_scene_item(scene_name, placeholder_input, enabled=False)
+                placeholder_sid = int(response.scene_item_id)
             else:
-                log.warning("create_input placeholder falló: %s", e)
-                placeholder_sid = None
+                client.create_input(scene_name, placeholder_input, "color_source_v3",
+                    {"color": 0xFF000000, "width": 1920, "height": 1080}, False)
+                placeholder_sid = int(client.get_scene_item_id(scene_name, placeholder_input).scene_item_id)
+        except Exception as exc:
+            log.warning("No se pudo preparar el placeholder del canal: %s", exc)
 
+        if overlays:
+            try:
+                count = len(client.get_scene_item_list(scene_name).scene_items)
+                for overlay in reversed(overlays):
+                    client.set_scene_item_index(scene_name, overlay["sceneItemId"], count - 1)
+            except Exception as exc:
+                log.warning("No se pudo colocar el contador sobre la playlist: %s", exc)
         return mapping, placeholder_sid
 
     # ------------------------------------------------------------------

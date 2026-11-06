@@ -64,6 +64,7 @@ def _make_mock_obs(initial_texts: dict[str, str] | None = None):
 
     obs = MagicMock()
     obs.client = client
+    obs.list_input_names.return_value = {CONFIG_SOURCE_V2, STATE_SOURCE_V2}
     return obs, storage
 
 

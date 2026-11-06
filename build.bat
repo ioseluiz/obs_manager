@@ -11,6 +11,8 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
 REM Generar el ejecutable (modo --onedir; el spec ya define COLLECT)
+python scripts\bundle_ffplay.py
+if errorlevel 1 exit /b 1
 pyinstaller OBS_Automation_Manager.spec
 
 echo.

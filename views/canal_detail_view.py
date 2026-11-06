@@ -443,66 +443,54 @@ class CanalDetailView(QWidget):
         self._refresh_status_only()
 
     def _on_preview(self):
-        """Lanza play_canal_local.py como subprocess para preview del UDP.
-
-        El firewall corporativo suele bloquear inbound UDP para vlc.exe/
-        ffplay.exe directamente. Este script bindea con Python (ya
-        autorizado) y pipea al reproductor por stdin — atraviesa el
-        firewall sin necesitar privilegios de admin.
-        """
+        from core.channel_preview import find_ffplay, udp_endpoint, can_receive_locally, UdpPreview
+        from PyQt6.QtWidgets import QApplication
         if self._canal_id is None:
             return
         canal = self.canal_model.get_canal(self._canal_id)
         if not canal:
             return
-        # Parsear el puerto del URL destino udp://host:puerto
-        url = canal.get("url_destino") or ""
+        title = str(canal.get("nombre") or "Canal")
+        obs = self.canal_controller.obs_client
+        if not obs.client:
+            QMessageBox.information(self, "Preview", "Conecta a OBS para visualizar el canal.")
+            return
+        def scene_preview(_reason=""):
+            from views.scene_preview_dialog import ScenePreviewDialog
+            dialog = ScenePreviewDialog(obs, title, title,
+                canvas_w=obs.canvas_width, canvas_h=obs.canvas_height,
+                parent=self)
+            notice = QLabel("Vista de la escena en OBS, sin audio. No verifica la recepción UDP en la pantalla destino.")
+            notice.setWordWrap(True)
+            dialog.layout().insertWidget(0, notice)
+            if not hasattr(self, '_scene_previews'):
+                self._scene_previews = []
+            self._scene_previews.append(dialog)
+            dialog.closed_by_user.connect(lambda: self._scene_previews.remove(dialog)
+                if dialog in self._scene_previews else None)
+            QApplication.instance().aboutToQuit.connect(dialog.close)
+            dialog.show()
         try:
-            port = int(url.rsplit(":", 1)[-1].split("?", 1)[0].split("/", 1)[0])
-        except (ValueError, IndexError):
-            QMessageBox.warning(
-                self, "Preview",
-                f"No pude extraer el puerto del URL destino:\n{url}",
-            )
+            host, port = udp_endpoint(canal.get("url_destino") or "")
+        except ValueError:
+            scene_preview()
             return
-
-        import shutil, subprocess, sys
-        from pathlib import Path
-        if not shutil.which("ffplay"):
-            QMessageBox.warning(
-                self, "Preview",
-                "ffplay no está en el PATH.\n\n"
-                "Instalar como admin: `winget install Gyan.FFmpeg`\n"
-                "Después reiniciar la app.",
-            )
+        player = find_ffplay()
+        # Unicast to another screen never arrives at this machine. In that
+        # case the scene is previewed over the existing OBS connection.
+        if not player or not can_receive_locally(host):
+            scene_preview()
             return
-
-        # scripts/play_canal_local.py está en el mismo repo
-        script = Path(__file__).resolve().parent.parent / "scripts" / "play_canal_local.py"
-        if not script.exists():
-            QMessageBox.warning(
-                self, "Preview",
-                f"Falta el script:\n{script}",
-            )
-            return
-
-        # Lanzamos con el mismo python que corre la app (venv), en una
-        # ventana nueva de consola para que el user pueda cerrarla con
-        # Ctrl+C y ver mensajes de ffplay si algo falla.
-        try:
-            creation_flags = 0
-            if sys.platform == "win32":
-                creation_flags = subprocess.CREATE_NEW_CONSOLE
-            # Pasar el nombre del canal como 2do argumento — el script lo
-            # usa como -window_title para que múltiples previews sean
-            # distinguibles en la barra de tareas.
-            subprocess.Popen(
-                [sys.executable, str(script), str(port),
-                 str(canal.get("nombre") or f"canal :{port}")],
-                creationflags=creation_flags,
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Preview", f"No se pudo lanzar ffplay:\n{e}")
+        if not hasattr(self, '_udp_previews'):
+            self._udp_previews = {}
+        previous = self._udp_previews.get(self._canal_id)
+        if previous:
+            previous.stop()
+        preview = UdpPreview(host, port, title, player, self)
+        preview.unavailable.connect(scene_preview)
+        QApplication.instance().aboutToQuit.connect(preview.stop)
+        self._udp_previews[self._canal_id] = preview
+        preview.start()
 
     def _on_diagnose(self):
         """Muestra los settings efectivos del filtro udp_out en un diálogo.

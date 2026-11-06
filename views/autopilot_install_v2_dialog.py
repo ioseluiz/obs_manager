@@ -142,6 +142,9 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         """True si el `__autopilot_config__` v1 existe en OBS. No afecta
         el flujo de v2 — solo nos permite informar al user."""
         try:
+            names = self._ap._obs.list_input_names()
+            if names is None or _CONFIG_SOURCE_V1 not in names:
+                return False
             self._ap._get_source_text(_CONFIG_SOURCE_V1)
             return True
         except Exception:

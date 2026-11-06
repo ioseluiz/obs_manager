@@ -22,6 +22,7 @@ class CountdownController:
         # Se marca a True si process_countdowns detecta OBS caído mientras
         # sincronizaba, para reanudar automáticamente al reconectar.
         self._was_syncing_before_disconnect = False
+        self._available_sources = set()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_countdowns)
@@ -51,8 +52,27 @@ class CountdownController:
             self.view.set_source_choices([])
             self.view.set_scene_choices([])
             return
-        self.view.set_source_choices(self.obs_client.list_text_input_names() or [])
-        self.view.set_scene_choices(self.obs_client.list_scene_names() or [])
+        sources = self.obs_client.list_text_input_names()
+        scenes = self.obs_client.list_scene_names()
+        if sources is None or scenes is None:
+            return
+        sources = set(sources)
+        created = set()
+        # Repair only sources explicitly assigned to an existing scene.
+        # Existing text, styles and positions are left untouched.
+        assignments = self._default_scene_for_sources(self._required_source_names() - sources)
+        for source, scene in assignments.items():
+            if scene and scene in scenes:
+                ok, error = self.obs_client.create_text_input(scene, source)
+                if ok:
+                    sources.add(source)
+                    created.add(source)
+                else:
+                    log.warning("No se pudo preparar la fuente %s: %s", source, error)
+        self._available_sources = sources
+        self._layout_counters_with_created_sources(created)
+        self.view.set_source_choices(sorted(sources))
+        self.view.set_scene_choices(scenes)
 
         # Refrescar el valor mostrado en OBS con el tiempo restante actual —
         # evita que queden números viejos entre sesiones o entre stop/start.
@@ -380,6 +400,12 @@ class CountdownController:
 
         now = datetime.datetime.now()
 
+        # A source may have been removed in OBS since the last refresh.
+        available = self.obs_client.list_text_input_names()
+        if available is None:
+            return
+        self._available_sources = set(available)
+
         for c in self.countdowns:
             try:
                 target = datetime.datetime.fromisoformat(c["fecha_objetivo"])
@@ -403,9 +429,8 @@ class CountdownController:
                 minutos, segundos = divmod(remainder, 60)
 
                 # Enviar por WebSocket a OBS con sufijo de unidad (05D, 12H, 34M, 56s)
-                if c["source_dias"]: self.obs_client.set_text_source_text(c["source_dias"], f"{dias:02d}D")
-                if c["source_horas"]: self.obs_client.set_text_source_text(c["source_horas"], f"{horas:02d}H")
-                if c["source_minutos"]: self.obs_client.set_text_source_text(c["source_minutos"], f"{minutos:02d}M")
-                if c["source_segundos"]: self.obs_client.set_text_source_text(c["source_segundos"], f"{segundos:02d}s")
+                for key, value in zip(SOURCE_KEYS, (f"{dias:02d}D", f"{horas:02d}H", f"{minutos:02d}M", f"{segundos:02d}s")):
+                    if c.get(key) in self._available_sources:
+                        self.obs_client.set_text_source_text(c[key], value)
             except Exception as e:
                 log.error("Fallo procesando contador '%s': %s", c.get("nombre", "?"), e)

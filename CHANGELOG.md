@@ -1,3 +1,11 @@
+## [2.2.0] - 2026-11-06
+
+- Corrige la respuesta asíncrona de la tarjeta OBS sin depender de atributos del wrapper QThread.
+- Incluye ffplay verificado en el instalador y ejecuta el relay UDP desde la app empaquetada. Preview de escena por WebSocket para destinos remotos o ausencia de UDP.
+- Crea las fuentes de contadores faltantes en su escena asignada y conserva las fuentes de texto al aplicar playlists.
+- Detecta Autopilot ausente sin pedir fuentes inexistentes; reconoce su instalación durante la sesión.
+- Oculta contraseñas y tokens en mensajes, excepciones y registros históricos.
+
 # CHANGELOG
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).

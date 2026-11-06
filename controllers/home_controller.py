@@ -24,7 +24,7 @@ REFRESH_INTERVAL_MS = 5000
 
 
 class _OBSStatusWorker(QThread):
-    status_ready = pyqtSignal(dict)
+    status_ready = pyqtSignal(object, dict)
 
     def __init__(self, obs_client, parent=None):
         super().__init__(parent)
@@ -33,7 +33,7 @@ class _OBSStatusWorker(QThread):
 
     def run(self):
         try:
-            self.status_ready.emit(self.obs_client.get_connection_info())
+            self.status_ready.emit(self.session, self.obs_client.get_connection_info())
         except Exception as exc:
             log.debug("No se pudo consultar el estado de OBS: %s", exc)
 
@@ -128,11 +128,12 @@ class HomeController(QObject):
         self._status_worker.status_ready.connect(self._apply_obs_info)
         self._status_worker.start()
 
-    def _apply_obs_info(self, info: dict) -> None:
-        worker = self.sender()
+    def _apply_obs_info(self, session, info: dict) -> None:
         if self._stopped:
             return
-        if worker.session is not self._obs_client.client:
+        # Carry the originating session in the queued signal. Qt can return
+        # a base QThread wrapper from sender(), without Python attributes.
+        if session is not self._obs_client.client:
             if self._obs_client.client is None and not info['connected']:
                 self._displayed_session = None
                 self._view.set_obs_card(connected=False)

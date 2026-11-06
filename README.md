@@ -141,8 +141,7 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 * **Plugin Source Record de Exeldro** — necesario para canales multi-salida
 * **Librerías Python:** `PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`
 
-**Opcionales (solo si querés usar el botón 🎥 Preview):**
-* **ffmpeg / ffplay** — reproductor local de canales UDP sin depender del firewall
+**Preview:** el instalador incluye el reproductor; OBS debe estar conectado para la vista de escena.
 
 ## 🚀 Instalación y Configuración
 
@@ -191,22 +190,14 @@ Todos los canales transmiten a través del plugin **Source Record** de Exeldro �
 2. Ejecutar el instalador (`.exe`). Instala en la carpeta de OBS automáticamente.
 3. Reiniciar OBS. Verificar: click derecho sobre cualquier escena → **Filtros** → **Añadir filtro** → debe aparecer **"Source Record"** en la lista.
 
-### 🎬 Instalar ffmpeg (opcional — solo para el botón 🎥 Preview)
+### 🎬 Preview de canales
 
-El botón **🎥 Preview** del panel de canal usa `ffplay` para mostrar el UDP localmente sin tocar el firewall. Si no lo instalás, el botón mostrará un aviso pidiéndolo.
+El instalador de Windows incluye `ffplay` (FFmpeg 9.0.2, GPLv3, con licencia y avisos en `vendor/ffmpeg`). No hace falta instalar paquetes adicionales, usar permisos de administrador ni modificar `PATH`.
 
-**Con winget** (Windows 10+ / 11 con winget habilitado):
-```powershell
-winget install Gyan.FFmpeg
-```
+Para un destino UDP local o multicast, Preview reproduce el flujo recibido. Si el destino unicast es otra pantalla, o no llega UDP, muestra la escena por la conexión WebSocket de OBS: esa vista no tiene audio ni verifica la recepción de la pantalla remota. No cambia la dirección ni los filtros del canal.
 
-**Sin admin (portable)**:
-1. Descargar el zip desde https://www.gyan.dev/ffmpeg/builds/ (elegir "release essentials").
-2. Descomprimir en `%USERPROFILE%\ffmpeg\`.
-3. Agregar `%USERPROFILE%\ffmpeg\bin` al **PATH del usuario** (Panel de Control → Variables de entorno → PATH del usuario → Nuevo). No requiere admin.
-4. **Reiniciar la app** para que agarre el PATH nuevo.
+Para ejecutar desde código fuente o compilar: `python scripts/bundle_ffplay.py` descarga el reproductor del proveedor y verifica su SHA-256 fijado. El reproductor se distribuye como ejecutable independiente; su licencia, configuración y enlaces al código fuente se incluyen con él.
 
-Verificar: en PowerShell `ffplay -version` debe mostrar la versión sin errores.
 
 ## 🌐 Conectar a OBS en otro equipo
 
@@ -299,7 +290,7 @@ Al seleccionar un canal en el sidebar de Producción, el panel derecho muestra:
 | **▶ / ⏮ / ⏸ / ⏭ / ⏹** | Play / anterior / pausar / siguiente / stop del rotador de ESE canal (independiente de otros canales). |
 | **📡 Aplicar cambios en OBS** | Recrea la escena contenedora, el filtro y los scene items desde la config actual. Úsalo tras editar el canal o si OBS se reinició. |
 | **🔬 Diagnóstico** | Lee los settings efectivos del filtro `udp_out` desde OBS. Útil cuando el stream no se ve como esperás — verifica encoder, bitrate, keyframe, profile, etc. |
-| **🎥 Preview** | Abre una ventana ffplay local con la salida UDP del canal (requiere ffmpeg instalado — ver Instalación). |
+| **🎥 Preview** | Muestra el vídeo UDP local/multicast o la escena remota mediante OBS. El instalador incluye el reproductor. |
 
 ## 🎥 Reproducir un canal en una pantalla
 
@@ -310,10 +301,10 @@ Los canales emiten **MPEG-TS sobre UDP**. Para verlos en la pantalla receptora t
 La forma más rápida para verificar que el canal está emitiendo bien:
 
 1. En la app: **Producción → seleccionar el canal → 🎥 Preview**.
-2. Se abre una ventana ffplay con el stream en vivo.
-3. Cerrar con Ctrl+C en la terminal negra que también se abre.
+2. Se abre el vídeo UDP si se recibe en este equipo; para destinos remotos se muestra la escena de OBS sin audio.
+3. Cerrar la ventana de Preview al terminar.
 
-**Requiere ffmpeg instalado** (ver Instalación).
+El instalador incluye el reproductor (ver Preview de canales).
 
 ### Opción B — En una pantalla receptora, usando VLC
 

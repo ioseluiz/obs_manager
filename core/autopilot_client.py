@@ -77,6 +77,9 @@ class AutopilotClientV2:
         conectado, si los sources no existen, o si hay cualquier error.
         """
         try:
+            names = self._obs.list_input_names()
+            if names is None or not {CONFIG_SOURCE_V2, STATE_SOURCE_V2}.issubset(names):
+                return False
             self._get_source_text(CONFIG_SOURCE_V2)
             self._get_source_text(STATE_SOURCE_V2)
             return True
@@ -208,6 +211,8 @@ class AutopilotClientV2:
         `updated_at`, `last_config_version`), o None si el source no
         existe o el contenido no es JSON valido.
         """
+        if not self.is_installed():
+            return None
         try:
             text = self._get_source_text(STATE_SOURCE_V2)
         except Exception:
