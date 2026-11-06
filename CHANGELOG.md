@@ -1,3 +1,7 @@
+## [2.2.2] - 2026-11-06
+
+- Las tarjetas de Inicio muestran capturas reales de cada canal de OBS, actualizadas sin bloquear la interfaz y sin alterar la transmisión. Conservan la imagen al refrescar datos y la limpian al desconectar.
+
 ## [2.2.1] - 2026-11-06
 
 - Evita consultas de transform a un elemento inexistente al previsualizar la escena compuesta de un canal.

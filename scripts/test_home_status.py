@@ -10,9 +10,9 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QThread
-from PyQt6.QtGui import QFontDatabase
-from controllers.home_controller import HomeController
+from PyQt6.QtCore import QThread, QBuffer, QIODevice
+from PyQt6.QtGui import QFontDatabase, QPixmap, QColor
+from controllers.home_controller import HomeController, _ChannelFramesWorker
 from core.workers import OBSWatchdog
 from models.obs_client import OBSClient, _GuardedClient
 from obsws_python.error import OBSSDKTimeoutError
@@ -182,6 +182,84 @@ class CardControllerTests(unittest.TestCase):
         self.assertLess(header.height(), 130)
         self.assertGreater(logs.text.height(), 500)
         logs.close()
+
+    def test_channel_frames_show_and_survive_metadata_refresh_then_clear(self):
+        view = HomeView()
+        view.set_channel_previews([('Piso 1', 'Piso 1', True)], 1)
+        card = view._preview_widgets[0]
+        pixmap = QPixmap(480, 270)
+        pixmap.fill(QColor('red'))
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        pixmap.save(buffer, 'PNG')
+        view.set_channel_preview('Piso 1', bytes(buffer.data()))
+        self.assertFalse(card._preview.pixmap.isNull())
+        self.assertTrue(all(label.isHidden() for label in card._placeholder_labels))
+        view.set_channel_previews([('Piso 1', 'Piso 1', False)], 1)
+        self.assertIs(view._preview_widgets[0], card)
+        self.assertFalse(card._preview.pixmap.isNull())
+        view.set_channel_preview('Piso 1', None)
+        self.assertTrue(card._preview.pixmap.isNull())
+        self.assertTrue(all(not label.isHidden() for label in card._placeholder_labels))
+        view.close()
+
+    def test_channel_worker_captures_each_scene_and_skips_absent_sources(self):
+        obs = Mock(client=object())
+        obs.list_scene_names.return_value = ['Piso 1', 'Piso 2']
+        obs.get_scene_screenshot_bytes.side_effect = [b'frame1', b'frame2']
+        worker = _ChannelFramesWorker(obs, ['Piso 1', 'Piso 2', 'Removed'])
+        frames = Mock()
+        worker.frame_ready.connect(frames)
+        worker.run()
+        self.assertEqual([c.args[0] for c in obs.get_scene_screenshot_bytes.call_args_list], ['Piso 1', 'Piso 2'])
+        self.assertEqual([c.args[2] for c in frames.call_args_list], [b'frame1', b'frame2', None])
+        self.assertTrue(all(c.args[0] is obs.client for c in frames.call_args_list))
+
+    def test_home_frames_ignore_old_session_and_removed_channel(self):
+        view = Mock()
+        obs = Mock(client=object())
+        controller = HomeController(view, Mock(get_all_canales=lambda: []),
+            Mock(get_all_scenes=lambda: []), obs, Mock(get_settings=lambda: {}), Mock())
+        controller._preview_names = ('Piso 1',)
+        controller._apply_frame(object(), 'Piso 1', b'stale')
+        controller._apply_frame(obs.client, 'Removed', b'stale')
+        view.set_channel_preview.assert_not_called()
+        controller._apply_frame(obs.client, 'Piso 1', b'current')
+        view.set_channel_preview.assert_called_once_with('Piso 1', b'current')
+        view.set_channel_preview.reset_mock()
+        obs.client = None
+        controller._refresh_frames()
+        view.set_channel_preview.assert_called_once_with('Piso 1', None)
+        controller.stop()
+
+    def test_home_frames_do_not_block_gui_or_start_overlapping_workers(self):
+        entered, release = threading.Event(), threading.Event()
+        view = Mock()
+        obs = Mock(client=object())
+        obs.list_scene_names.return_value = ['Piso 1']
+        def snapshot(*args):
+            entered.set()
+            release.wait(2)
+            return b'frame'
+        obs.get_scene_screenshot_bytes.side_effect = snapshot
+        controller = HomeController(view, Mock(get_all_canales=lambda: []),
+            Mock(get_all_scenes=lambda: []), obs, Mock(get_settings=lambda: {}), Mock())
+        controller._preview_names = ('Piso 1',)
+        view.isVisible.return_value = False
+        controller._refresh_frames()
+        self.assertIsNone(controller._frames_worker)
+        view.isVisible.return_value = True
+        controller._refresh_frames()
+        try:
+            self.assertTrue(entered.wait(2))
+            worker = controller._frames_worker
+            controller._refresh_frames()
+            self.assertIs(worker, controller._frames_worker)
+            self.app.processEvents()
+            self.assertEqual(obs.get_scene_screenshot_bytes.call_count, 1)
+        finally:
+            release.set()
+            controller.stop()
 
     def test_manual_disconnect_suspends_reconnect_even_during_attempt(self):
         obs = Mock()

@@ -279,6 +279,15 @@ class HomeView(QWidget):
     def set_channel_previews(self, items: list[tuple[str, str, bool]],
                               total: int) -> None:
         """items: hasta 3 tuplas (nombre, escena_actual, is_live)."""
+        names = tuple(item[0] for item in items[:3])
+        current = tuple(w._name for w in self._preview_widgets if isinstance(w, ChannelPreviewCard))
+        if names and names == current:
+            # Keep the current frames instead of rebuilding cards every 5s.
+            for card, (_, scene_name, live) in zip(self._preview_widgets, items):
+                card.set_scene_name(scene_name)
+                card.set_live(live)
+            self.lbl_more.setText(f"Ver todos ({total})" if total > len(items) else "")
+            return
         self._preview_widgets = []
         # Limpiar previas
         while self._channels_row.count():
@@ -301,6 +310,11 @@ class HomeView(QWidget):
             self.lbl_more.setText(f"Ver todos ({total})")
         else:
             self.lbl_more.setText("")
+
+    def set_channel_preview(self, name: str, data: bytes | None) -> None:
+        for card in self._preview_widgets:
+            if isinstance(card, ChannelPreviewCard) and card._name == name:
+                card.set_preview(data)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

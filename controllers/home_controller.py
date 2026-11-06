@@ -23,6 +23,32 @@ log = logging.getLogger(__name__)
 REFRESH_INTERVAL_MS = 5000
 
 
+class _ChannelFramesWorker(QThread):
+    frame_ready = pyqtSignal(object, str, object)
+
+    def __init__(self, obs_client, names, parent=None):
+        super().__init__(parent)
+        self.obs_client = obs_client
+        self.session = obs_client.client
+        self.names = tuple(names)
+
+    def run(self):
+        try:
+            scenes = set(self.obs_client.list_scene_names() or [])
+        except Exception:
+            scenes = set()
+        for name in self.names:
+            if self.isInterruptionRequested() or self.obs_client.client is not self.session:
+                break
+            data = None
+            try:
+                if name in scenes:
+                    data = self.obs_client.get_scene_screenshot_bytes(name, 480, 270, "jpg", 75)
+            except Exception as exc:
+                log.debug("Miniatura de %s no disponible: %s", name, exc)
+            self.frame_ready.emit(self.session, name, data)
+
+
 class _OBSStatusWorker(QThread):
     status_ready = pyqtSignal(object, dict)
 
@@ -51,6 +77,13 @@ class HomeController(QObject):
         self._status_worker = None
         self._displayed_session = None
         self._stopped = False
+        self._frames_worker = None
+        self._preview_names = ()
+
+        self._frames_timer = QTimer(self)
+        self._frames_timer.setInterval(1000)
+        self._frames_timer.timeout.connect(self._refresh_frames)
+        self._frames_timer.start()
 
         self._timer = QTimer(self)
         self._timer.setInterval(REFRESH_INTERVAL_MS)
@@ -157,14 +190,35 @@ class HomeController(QObject):
                 status = {}
             if status and status.get("applied"):
                 is_live = bool(status.get("rotator_running"))
-                # active_item_id es el canal_item_id del rotador. No se
-                # resuelve a nombre de escena aqui para no sobrecargar
-                # — en Fase 5c/7 el preview_worker puede inyectar la
-                # miniatura real + nombre resuelto. Por ahora mostramos
-                # el nombre del canal como fallback.
                 scene_actual = name
             items.append((name, scene_actual, is_live))
         self._view.set_channel_previews(items, total=len(habilitados))
+        self._preview_names = tuple(item[0] for item in items)
+        self._refresh_frames()
+
+    def _refresh_frames(self) -> None:
+        if self._stopped:
+            return
+        if not self._obs_client.client:
+            for name in self._preview_names:
+                self._view.set_channel_preview(name, None)
+            return
+        # Read-only snapshots only while Inicio is visible. One worker at
+        # a time bounds traffic and keeps websocket waits off the GUI thread.
+        if not self._preview_names or not self._view.isVisible():
+            return
+        if self._frames_worker is not None:
+            if self._frames_worker.isRunning():
+                return
+            self._frames_worker.deleteLater()
+        self._frames_worker = _ChannelFramesWorker(self._obs_client, self._preview_names, self)
+        self._frames_worker.frame_ready.connect(self._apply_frame)
+        self._frames_worker.start()
+
+    def _apply_frame(self, session, name, data) -> None:
+        if self._stopped or session is not self._obs_client.client or name not in self._preview_names:
+            return
+        self._view.set_channel_preview(name, data)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -173,5 +227,9 @@ class HomeController(QObject):
     def stop(self) -> None:
         self._stopped = True
         self._timer.stop()
+        self._frames_timer.stop()
+        if self._frames_worker is not None:
+            self._frames_worker.requestInterruption()
+            self._frames_worker.wait()
         if self._status_worker is not None:
             self._status_worker.wait()

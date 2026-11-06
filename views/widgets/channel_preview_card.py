@@ -3,12 +3,11 @@
 Area de preview (color placeholder o pixmap si llega), chip 'En vivo'
 cuando el canal esta transmitiendo, nombre canal + escena actual al pie.
 
-En Fase 3 el area de preview es un degradado estatico — las miniaturas
-live via `core/preview_worker.py` entran en una fase posterior.
+Muestra la escena compuesta de cada canal recibida desde OBS.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, QRect
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QStackedLayout, QSizePolicy, QVBoxLayout, QWidget
 
@@ -26,6 +25,24 @@ def _gradient_pixmap(w: int, h: int, c1: str, c2: str) -> QPixmap:
     p.fillRect(0, 0, w, h, g)
     p.end()
     return pm
+
+
+class _PreviewArea(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.pixmap = QPixmap()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.pixmap.isNull():
+            return
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), Qt.GlobalColor.black)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        size = self.pixmap.size().scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        target = QRect((self.width() - size.width()) // 2,
+                       (self.height() - size.height()) // 2, size.width(), size.height())
+        painter.drawPixmap(target, self.pixmap)
 
 
 class ChannelPreviewCard(QWidget):
@@ -48,11 +65,6 @@ class ChannelPreviewCard(QWidget):
                                 SPACING["sm"], SPACING["md"])
         col.setSpacing(SPACING["sm"])
 
-        # Area de preview — stackea el degradado de fondo con un overlay
-        # que lleva el icono + texto "Sin preview" para que la card no
-        # luzca vacia mientras no haya thumbnail live. Las fases
-        # posteriores reemplazan el pixmap de fondo por la miniatura
-        # real sin tocar el overlay (solo cambia la fuente del preview).
         self._preview = self._build_preview_block()
         col.addWidget(self._preview, 1)
 
@@ -81,7 +93,7 @@ class ChannelPreviewCard(QWidget):
         col.addWidget(self.lbl_scene)
 
     def _build_preview_block(self) -> QWidget:
-        container = QWidget()
+        container = _PreviewArea()
         container.setMinimumHeight(self.PREVIEW_HEIGHT)
         container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         container.setObjectName("ChannelPreviewArea")
@@ -110,6 +122,7 @@ class ChannelPreviewCard(QWidget):
             "font-size: 10px; letter-spacing: 1px;"
         )
         overlay.addWidget(hint)
+        self._placeholder_labels = (icon_label, hint)
 
         return container
 
@@ -140,3 +153,12 @@ class ChannelPreviewCard(QWidget):
 
     def set_live(self, is_live: bool) -> None:
         self._style_chip(is_live)
+
+    def set_preview(self, data: bytes | None) -> None:
+        pixmap = QPixmap()
+        if data:
+            pixmap.loadFromData(data)
+        self._preview.pixmap = pixmap
+        for label in self._placeholder_labels:
+            label.setVisible(pixmap.isNull())
+        self._preview.update()
