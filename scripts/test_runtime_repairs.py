@@ -101,6 +101,21 @@ class RepairTests(unittest.TestCase):
         obs.client.get_input_settings.return_value = SimpleNamespace(input_settings={'text': '{}'})
         self.assertTrue(client.is_installed())
 
+    def test_channel_scene_preview_does_not_query_a_self_nested_source(self):
+        from views.canal_detail_view import CanalDetailView
+        from PyQt6.QtWidgets import QWidget
+        view = QWidget()
+        view._canal_id = 1
+        view.canal_model = Mock()
+        view.canal_model.get_canal.return_value = {'nombre': 'Canal', 'url_destino': ''}
+        obs = Mock(client=object(), canvas_width=1920, canvas_height=1080)
+        view.canal_controller = Mock(obs_client=obs)
+        with patch('views.scene_preview_dialog.ScenePreviewDialog') as dialog:
+            CanalDetailView._on_preview(view)
+            self.assertIsNone(dialog.call_args.args[2])
+            dialog.return_value.show.assert_called_once()
+        view.close()
+
     def counter(self, scene='Canal'):
         counter = CountdownController.__new__(CountdownController)
         counter.view = Mock()

@@ -457,7 +457,9 @@ class CanalDetailView(QWidget):
             return
         def scene_preview(_reason=""):
             from views.scene_preview_dialog import ScenePreviewDialog
-            dialog = ScenePreviewDialog(obs, title, title,
+            # The channel is a composite scene, not an input nested inside
+            # itself. No source transform is needed for this preview.
+            dialog = ScenePreviewDialog(obs, title, None,
                 canvas_w=obs.canvas_width, canvas_h=obs.canvas_height,
                 parent=self)
             notice = QLabel("Vista de la escena en OBS, sin audio. No verifica la recepción UDP en la pantalla destino.")

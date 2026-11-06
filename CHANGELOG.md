@@ -1,3 +1,7 @@
+## [2.2.1] - 2026-11-06
+
+- Evita consultas de transform a un elemento inexistente al previsualizar la escena compuesta de un canal.
+
 ## [2.2.0] - 2026-11-06
 
 - Corrige la respuesta asíncrona de la tarjeta OBS sin depender de atributos del wrapper QThread.
