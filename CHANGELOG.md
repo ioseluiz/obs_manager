@@ -1,13 +1,9 @@
-## [2.2.2] - 2026-11-06
+## [2.1.0] - 2026-11-07
 
+- Reúne en una sola versión las mejoras de interfaz corporativa, logos, diseño adaptable, encabezados y simplificación de iconos posteriores a v2.0.0.
+- La tarjeta de OBS muestra el logo, la versión real de OBS y de la aplicación, el estado de conexión, el perfil, las escenas cargadas y el tiempo conectado.
 - Las tarjetas de Inicio muestran capturas reales de cada canal de OBS, actualizadas sin bloquear la interfaz y sin alterar la transmisión. Conservan la imagen al refrescar datos y la limpian al desconectar.
-
-## [2.2.1] - 2026-11-06
-
 - Evita consultas de transform a un elemento inexistente al previsualizar la escena compuesta de un canal.
-
-## [2.2.0] - 2026-11-06
-
 - Corrige la respuesta asíncrona de la tarjeta OBS sin depender de atributos del wrapper QThread.
 - Incluye ffplay verificado en el instalador y ejecuta el relay UDP desde la app empaquetada. Preview de escena por WebSocket para destinos remotos o ausencia de UDP.
 - Crea las fuentes de contadores faltantes en su escena asignada y conserva las fuentes de texto al aplicar playlists.
