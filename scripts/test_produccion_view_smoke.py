@@ -127,6 +127,34 @@ def main():
     _check(cm.get_canal(new_id)["habilitado"] is False,
            "duplicado arranca deshabilitado")
 
+    # === Dentro de MainWindow a 1366x768: sin scroll de pagina, todo visible ===
+    print("\n[MainWindow 1366x768 — Produccion llena el area, sin partes escondidas]")
+    from PyQt6.QtWidgets import QScrollArea
+    from views.main_window import MainWindow
+    window = MainWindow()
+    view2 = ProduccionView(cm, sm, canal_ctrl)
+    idx = window.add_section(view2, "Produccion", "produccion")
+    window.set_active_section(idx)
+    window.resize(1366, 768)
+    window.show()
+    view2.lst_canales.setCurrentRow(0)
+    for _ in range(10):
+        app.processEvents()
+    _check(view2.property("responsive-scroll") is True, "ProduccionView gestiona su propio scroll")
+    _check(not isinstance(view2.parentWidget(), QScrollArea),
+           "no esta envuelta en el scroll de pagina (SectionViewport)")
+    _check(view2.height() <= window.stack.height(),
+           f"la vista cabe en el area del stack ({view2.height()} <= {window.stack.height()})")
+    bottom_btn = view2.btn_new_canal
+    btn_bottom = bottom_btn.mapTo(window, bottom_btn.rect().bottomLeft()).y()
+    _check(bottom_btn.isVisible() and btn_bottom <= window.height(),
+           f"boton 'Nuevo canal' visible dentro de la ventana (y={btn_bottom} <= {window.height()})")
+    tbl = view2.canal_detail.tbl_items
+    tbl_bottom = tbl.mapTo(window, tbl.rect().bottomLeft()).y()
+    _check(tbl_bottom <= window.height(),
+           f"la playlist termina dentro de la ventana (y={tbl_bottom} <= {window.height()})")
+    window.close()
+
     # === Cleanup ===
     try:
         tmp.unlink()

@@ -63,14 +63,24 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(640, 480)
 
         # Tamaño inicial solicitado; se limita al área útil si es menor.
-        self.resize(1366, 768)
+        # 1366 de ancho (laptops corporativas) y hasta 900 de alto: en
+        # pantallas 1080p aprovecha la altura para que Produccion y
+        # Biblioteca se vean completas; en laptops 768p se recorta al
+        # area util (~728) como antes.
+        self.resize(1366, 900)
         self._compact_mode = False
         screen = QApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
             target_w = max(640, min(1366, avail.width()))
-            target_h = max(480, min(768, avail.height()))
+            target_h = max(480, min(900, avail.height()))
             self.resize(target_w, target_h)
+            # Centrar en la pantalla: con la posicion por defecto de Windows
+            # (cascada) una ventana alta podia quedar con el borde inferior
+            # debajo de la barra de tareas.
+            frame = self.frameGeometry()
+            frame.moveCenter(avail.center())
+            self.move(max(avail.left(), frame.left()), max(avail.top(), frame.top()))
             # Laptops de 14" suelen dar <=720px utiles. El flag lo consume
             # scene_view para compactar su propio toolbar interno.
             self._compact_mode = avail.height() <= 760
