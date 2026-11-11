@@ -28,6 +28,7 @@ from core.legacy_migrator import migrate_legacy_to_canal, needs_migration
 from controllers.autopilot_v2_controller import AutopilotV2Controller
 from controllers.home_controller import HomeController
 from views.autopilot_install_v2_dialog import AutopilotInstallV2Dialog
+from views.source_record_install_dialog import SourceRecordInstallDialog
 from views.home_view import HomeView
 from views.legacy_migration_dialog import LegacyMigrationDialog
 
@@ -194,6 +195,13 @@ class MainController:
         dialog.install_autopilot_v2_requested.connect(
             lambda d=dialog: self._on_install_autopilot_v2_requested(d)
         )
+        try:
+            self._populate_settings_source_record(dialog)
+        except Exception as e:
+            log.debug("No se pudo poblar estado del plugin Source Record: %s", e)
+        dialog.install_source_record_requested.connect(
+            lambda d=dialog: self._on_install_source_record_requested(d)
+        )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = dialog.get_inputs()
@@ -282,6 +290,9 @@ class MainController:
         log.info("Conexión inicial a OBS establecida.")
         # Poblar combos del módulo de contadores con las escenas / text sources de OBS
         self.countdown_controller.refresh_from_obs()
+        # Sin el plugin Source Record, aplicar canales falla: avisar antes
+        # (una vez por sesión; respetando "no volver a avisar").
+        self._maybe_warn_source_record_missing()
         # Auto-aplicar canales habilitados a OBS (Fase 1e)
         self._auto_apply_canales()
         # Fase 2 unificacion: ofrecer migrar secuencias legacy a un canal
@@ -596,6 +607,72 @@ class MainController:
         except Exception as e:
             log.debug("No se pudo obtener fingerprint: %s", e)
             return None
+
+    # ------------------------------------------------------------------
+    # Plugin Source Record
+    # ------------------------------------------------------------------
+
+    def _open_source_record_dialog(self, parent):
+        settings = self.settings_model.get_settings()
+        is_local = _is_local_host(settings.get("host", ""))
+        dialog = SourceRecordInstallDialog(
+            self.obs_client, settings=settings, is_local=is_local, parent=parent,
+        )
+        dialog.exec()
+
+    def _maybe_warn_source_record_missing(self):
+        """Tras conectar, si OBS no expone `source_record_filter`, ofrece
+        instalar el plugin. Una vez por sesión; `SOURCE_RECORD_PROMPT_DISMISSED`
+        en el .env silencia para siempre. Si no se pudo determinar (None),
+        no molesta. Nunca interrumpe el flujo de connect."""
+        if getattr(self, "_source_record_prompted_this_session", False):
+            return
+        try:
+            dismissed = str(self.settings_model.get_flag(
+                "SOURCE_RECORD_PROMPT_DISMISSED", "false")).lower() == "true"
+            if dismissed:
+                return
+            present = self.obs_client.has_source_record()
+        except Exception as e:
+            log.debug("Comprobación de Source Record falló: %s", e)
+            return
+        if present is not False:
+            return
+        self._source_record_prompted_this_session = True
+        log.warning("OBS conectado sin el plugin Source Record.")
+        box = QMessageBox(self.main_window)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Plugin Source Record no detectado")
+        box.setText(
+            "OBS está conectado, pero no tiene cargado el plugin Source Record.\n\n"
+            "Sin él, los canales multi-salida no pueden transmitir. La app puede "
+            "instalarlo ahora (OBS en este equipo) o preparar un paquete para un OBS remoto."
+        )
+        btn_install = box.addButton("Instalar ahora", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Más tarde", QMessageBox.ButtonRole.RejectRole)
+        btn_never = box.addButton("No volver a avisar", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(btn_install)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_never:
+            self.settings_model.set_flag("SOURCE_RECORD_PROMPT_DISMISSED", "true")
+            log.info("Aviso de Source Record silenciado por el usuario.")
+        elif clicked is btn_install:
+            self._open_source_record_dialog(parent=self.main_window)
+
+    def _populate_settings_source_record(self, dialog):
+        """Estado del plugin en el SettingsDialog (None si no hay conexión)."""
+        present = self.obs_client.has_source_record() if self.obs_client.client else None
+        dialog.set_source_record_status(present)
+
+    def _on_install_source_record_requested(self, settings_dialog):
+        """Botón 'Instalar / Verificar plugin Source Record' en Settings.
+        No requiere OBS conectado: instalar/exportar funcionan offline."""
+        self._open_source_record_dialog(parent=settings_dialog)
+        try:
+            self._populate_settings_source_record(settings_dialog)
+        except Exception as e:
+            log.debug("No se pudo refrescar estado del plugin: %s", e)
 
     def _populate_settings_calibration(self, dialog):
         """Carga el estado actual de calibración en el SettingsDialog."""

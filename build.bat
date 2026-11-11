@@ -10,6 +10,10 @@ REM Limpiar compilaciones anteriores
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
+REM Plugin Source Record embebido (descarga verificada por SHA-256 a vendor\source-record)
+python scripts\bundle_source_record.py
+if errorlevel 1 exit /b 1
+
 REM Generar el ejecutable (modo --onedir; el spec ya define COLLECT)
 pyinstaller OBS_Automation_Manager.spec
 

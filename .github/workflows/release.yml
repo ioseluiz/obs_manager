@@ -34,7 +34,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           PYTHONIOENCODING: utf-8
         run: |
-          foreach ($test in @('test_home_status.py', 'test_runtime_repairs.py', 'test_autopilot_client_v2.py', 'test_autopilot_v2_controller.py', 'test_canal_detail_view_smoke.py', 'test_wheel_guard.py')) {
+          foreach ($test in @('test_home_status.py', 'test_runtime_repairs.py', 'test_autopilot_client_v2.py', 'test_autopilot_v2_controller.py', 'test_canal_detail_view_smoke.py', 'test_wheel_guard.py', 'test_source_record_installer.py', 'test_source_record_dialog_smoke.py')) {
             python "scripts/$test"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -63,6 +63,8 @@ jobs:
       - name: Build application with PyInstaller (--onedir via spec)
         shell: pwsh
         run: |
+          python scripts/bundle_source_record.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pyinstaller OBS_Automation_Manager.spec
 
       - name: Verify PyInstaller output
@@ -72,6 +74,10 @@ jobs:
           if (-not (Test-Path $exe)) {
             Write-Error "Build failed: $exe not found"
             exit 1
+          }
+          $vendor = "dist\OBS_Automation_Manager\_internal\vendor\source-record"
+          foreach ($f in @("$vendor\new\source-record\source-record.dll", "$vendor\legacy\source-record\bin\64bit\source-record.dll", "$vendor\LICENSE")) {
+            if (-not (Test-Path $f)) { throw "Bundled Source Record plugin missing: $f" }
           }
           $count =(Get-ChildItem "dist\OBS_Automation_Manager" -Recurse -File | Measure-Object).Count
           Write-Host "PyInstaller output OK ($count archivos)"
@@ -129,6 +135,7 @@ jobs:
             ### ⚙️ Requisitos
             - Windows 10/11 (x64)
             - OBS Studio 28.0+ con WebSocket habilitado
+            - Plugin Source Record (canales multi-salida): el instalador lo instala si OBS Studio está instalado en el equipo; para OBS portable o remoto, Ajustes → Plugin Source Record.
             - Autopilot requiere cargar obs_scripts/autopilot_v2.lua en el equipo con OBS (Ajustes → Instalar / Verificar Autopilot v2).
 
             ### 🔄 Actualización
