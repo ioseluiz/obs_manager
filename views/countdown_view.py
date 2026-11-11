@@ -1,5 +1,6 @@
 from views.widgets.responsive_dialog import ResponsiveDialog
 from views.widgets.responsive_layout import FlowLayout
+from views.widgets.wheel_guard import guard_wheel_in
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                              QDateTimeEdit, QCheckBox, QGroupBox, QHeaderView,
@@ -133,6 +134,11 @@ class CountdownView(QWidget):
         apply_icon(self.btn_toggle_sync, "▶", color="#FFFFFF")
 
         self.layout.addLayout(btn_row)
+
+        # Guardia de rueda: los dialogos (CountdownEditDialog,
+        # CountdownLayoutDialog) la reciben via ResponsiveDialog; esta llamada
+        # cubre cualquier control de valor que viva en la vista misma.
+        guard_wheel_in(self)
 
     def populate_table(self, countdowns):
         self.table.setRowCount(0)

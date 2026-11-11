@@ -11,6 +11,7 @@ from .channel_preview_card import ChannelPreviewCard
 from .hero_header import HeroHeader
 from .kpi_card import KpiCard
 from .sidebar import Sidebar
+from .wheel_guard import guard_wheel, guard_wheel_in
 
 __all__ = [
     "ActionButton",
@@ -19,4 +20,6 @@ __all__ = [
     "HeroHeader",
     "KpiCard",
     "Sidebar",
+    "guard_wheel",
+    "guard_wheel_in",
 ]

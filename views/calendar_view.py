@@ -1,4 +1,5 @@
 from views.widgets.responsive_layout import FlowLayout
+from views.widgets.wheel_guard import guard_wheel_in
 from views.theme import COLORS
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout,
@@ -259,6 +260,11 @@ class CalendarView(QWidget):
 
         self.layout.addLayout(btn_layout)
         self.layout.addStretch()
+
+        # Los 23 spinboxes y 2 combos de esta vista aplican cambios en vivo a
+        # OBS y los persisten en .env; sin esta guardia, hacer scroll con la
+        # rueda sobre las secciones 2-5 cambiaba valores por accidente.
+        guard_wheel_in(self)
 
     def _build_section(self, title):
         group = QGroupBox()

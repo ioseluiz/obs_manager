@@ -103,6 +103,7 @@ Presets configurables al agregar una escena para acelerar casos comunes:
 - Construcción de escenas "Cero Manual" que integran fondo y marcador.
 - **Auto-Escala** basada en Pillow (marcador a 275px de ancho).
 - **Auto-Calibración** — desplazamiento matemático de la figura dorada al día correspondiente a la medianoche.
+- **Controles protegidos contra la rueda del mouse** — los campos de calibración solo responden a la rueda cuando tienen el foco (clic previo); la rueda sobre ellos desplaza la página en vez de cambiar valores. Mismo comportamiento en Contadores, Biblioteca y los diálogos de edición.
 
 ### Módulo de Contadores
 - Cuenta regresiva/adelante hacia fechas objetivo.

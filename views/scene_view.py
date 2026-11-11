@@ -1,4 +1,5 @@
 from views.widgets.responsive_layout import FlowLayout
+from views.widgets.wheel_guard import guard_wheel_in
 import logging
 import unicodedata
 
@@ -204,6 +205,10 @@ class SceneView(QWidget):
 
         # --- PANEL AJUSTE EN VIVO ---
         self.layout.addWidget(self._build_live_panel(), 0)
+
+        # Guardia de rueda: los sliders/spinboxes de "Ajuste en vivo" envian el
+        # transform a OBS por valueChanged; sin foco deben ignorar la rueda.
+        guard_wheel_in(self)
 
     def _open_table_context_menu(self, pos):
         """Menú contextual sobre la tabla: acciones sobre la escena bajo el cursor."""
