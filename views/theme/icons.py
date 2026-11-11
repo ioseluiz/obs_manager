@@ -67,7 +67,6 @@ ICON_NAMES = {
     "editar",
     "eliminar",
     "escenas",
-    "imagen_vista_previa",
     "informacion",
     "inicio",
     "logs",

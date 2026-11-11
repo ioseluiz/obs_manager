@@ -63,8 +63,6 @@ jobs:
       - name: Build application with PyInstaller (--onedir via spec)
         shell: pwsh
         run: |
-          python scripts/bundle_ffplay.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pyinstaller OBS_Automation_Manager.spec
 
       - name: Verify PyInstaller output
@@ -75,11 +73,7 @@ jobs:
             Write-Error "Build failed: $exe not found"
             exit 1
           }
-          $player = "dist\OBS_Automation_Manager\_internal\vendor\ffmpeg\bin\ffplay.exe"
-          if (-not (Test-Path $player)) { throw "Bundled ffplay missing" }
-          & $player -version
-          if ($LASTEXITCODE -ne 0) { throw "Bundled ffplay cannot run" }
-          $count = (Get-ChildItem "dist\OBS_Automation_Manager" -Recurse -File | Measure-Object).Count
+          $count =(Get-ChildItem "dist\OBS_Automation_Manager" -Recurse -File | Measure-Object).Count
           Write-Host "PyInstaller output OK ($count archivos)"
 
       - name: Compile installer with Inno Setup
@@ -123,12 +117,8 @@ jobs:
 
             Instalador de escritorio para automatización de transmisiones OBS.
 
-            ### Cambios incluidos en v2.1.0
-            - Interfaz corporativa del Canal de Panamá, logos mejorados y distribución adaptable a diferentes pantallas.
-            - Estado de OBS con logo, versiones de OBS y la app, conexión, perfil, escenas y tiempo conectado.
-            - Imágenes reales de los canales en Inicio y Preview en Producción, con ffplay incluido.
-            - Correcciones de la tarjeta de estado, fuentes del contador, conservación de textos y detección de Autopilot.
-            - Credenciales ocultas en logs y excepciones.
+            ### 📋 Cambios
+            Ver la sección de esta versión en [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) y las notas generadas automáticamente más abajo.
 
             ### 📦 Instalación
             1. Descarga `OBS_Automation_Manager_Setup_v${{ steps.version.outputs.VERSION }}.exe` de los assets abajo.
@@ -139,7 +129,6 @@ jobs:
             ### ⚙️ Requisitos
             - Windows 10/11 (x64)
             - OBS Studio 28.0+ con WebSocket habilitado
-            - Preview incluye ffplay; no requiere instalar FFmpeg ni modificar PATH.
             - Autopilot requiere cargar obs_scripts/autopilot_v2.lua en el equipo con OBS (Ajustes → Instalar / Verificar Autopilot v2).
 
             ### 🔄 Actualización

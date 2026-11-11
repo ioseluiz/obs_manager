@@ -123,7 +123,7 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 - **Calibración automática** — mide cuántos canales aguanta cada encoder (x264, qsv, nvenc, amf) en este equipo. Se guarda por fingerprint del equipo — reinstalar mantiene la calibración.
 - **Validación al conectar** — si la config excede la capacidad calibrada, sale un dialog con sugerencias por canal. Nunca auto-degrada — el user decide.
 - **Watchdog runtime** — vigila `encoding_lag` cada 10s durante producción, avisa non-blocking si detecta degradación sostenida.
-- **Botón 🎥 Preview** — verificá localmente lo que sale por el UDP del canal sin depender del firewall.
+- **Vista previa en Inicio** — las tarjetas de canales muestran capturas reales de cada escena de canal vía WebSocket de OBS.
 - **Botón 🔬 Diagnóstico** — inspecciona los settings efectivos del filtro `udp_out` en OBS.
 
 ### Autopilot v2 (rotación persistente dentro de OBS)
@@ -141,8 +141,6 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 * **OBS Studio 28.0+** con WebSocket habilitado
 * **Plugin Source Record de Exeldro** — necesario para canales multi-salida
 * **Librerías Python:** `PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`
-
-**Preview:** el instalador incluye el reproductor; OBS debe estar conectado para la vista de escena.
 
 ## 🚀 Instalación y Configuración
 
@@ -190,15 +188,6 @@ Todos los canales transmiten a través del plugin **Source Record** de Exeldro �
 1. Descargar desde: https://obsproject.com/forum/resources/source-record.1285/ (o la última versión estable en GitHub Releases del plugin).
 2. Ejecutar el instalador (`.exe`). Instala en la carpeta de OBS automáticamente.
 3. Reiniciar OBS. Verificar: click derecho sobre cualquier escena → **Filtros** → **Añadir filtro** → debe aparecer **"Source Record"** en la lista.
-
-### 🎬 Preview de canales
-
-El instalador de Windows incluye `ffplay` (FFmpeg 9.0.2, GPLv3, con licencia y avisos en `vendor/ffmpeg`). No hace falta instalar paquetes adicionales, usar permisos de administrador ni modificar `PATH`.
-
-Para un destino UDP local o multicast, Preview reproduce el flujo recibido. Si el destino unicast es otra pantalla, o no llega UDP, muestra la escena por la conexión WebSocket de OBS: esa vista no tiene audio ni verifica la recepción de la pantalla remota. No cambia la dirección ni los filtros del canal.
-
-Para ejecutar desde código fuente o compilar: `python scripts/bundle_ffplay.py` descarga el reproductor del proveedor y verifica su SHA-256 fijado. El reproductor se distribuye como ejecutable independiente; su licencia, configuración y enlaces al código fuente se incluyen con él.
-
 
 ## 🌐 Conectar a OBS en otro equipo
 
@@ -289,23 +278,17 @@ Al seleccionar un canal en el sidebar de Producción, el panel derecho muestra:
 |---|---|
 | **▶ Transmitir** | Habilita/deshabilita el filtro UDP del canal. Cuando está prendido, el UDP sale. |
 | **▶ / ⏮ / ⏸ / ⏭ / ⏹** | Play / anterior / pausar / siguiente / stop del rotador de ESE canal (independiente de otros canales). |
-| **📡 Aplicar cambios en OBS** | Recrea la escena contenedora, el filtro y los scene items desde la config actual. Úsalo tras editar el canal o si OBS se reinició. |
 | **🔬 Diagnóstico** | Lee los settings efectivos del filtro `udp_out` desde OBS. Útil cuando el stream no se ve como esperás — verifica encoder, bitrate, keyframe, profile, etc. |
-| **🎥 Preview** | Muestra el vídeo UDP local/multicast o la escena remota mediante OBS. El instalador incluye el reproductor. |
+
+Los cambios de playlist (agregar, quitar, reordenar, editar duración) y de configuración del canal se aplican solos en OBS; no hay botón de "aplicar".
 
 ## 🎥 Reproducir un canal en una pantalla
 
 Los canales emiten **MPEG-TS sobre UDP**. Para verlos en la pantalla receptora tenés varias opciones:
 
-### Opción A — En tu propio equipo, usando el botón 🎥 Preview
+### Opción A — En la pestaña Inicio (vista rápida)
 
-La forma más rápida para verificar que el canal está emitiendo bien:
-
-1. En la app: **Producción → seleccionar el canal → 🎥 Preview**.
-2. Se abre el vídeo UDP si se recibe en este equipo; para destinos remotos se muestra la escena de OBS sin audio.
-3. Cerrar la ventana de Preview al terminar.
-
-El instalador incluye el reproductor (ver Preview de canales).
+Con OBS conectado, las tarjetas de canales de **Inicio** muestran una captura reciente de la escena de cada canal, obtenida por WebSocket. Sirve para confirmar qué contenido está rotando en cada canal. No tiene audio ni verifica que el UDP llegue a la pantalla destino — para eso usá las opciones siguientes.
 
 ### Opción B — En una pantalla receptora, usando VLC
 
@@ -328,7 +311,7 @@ Reemplazar `9001` con el puerto del URL destino del canal. **El flag `--demux=ts
 
 Si la URL destino del canal es una IP **multicast** (primer octeto 224–239, ej. `udp://230.126.126.149:8000`), el emisor manda una sola copia y cada receptor se **suscribe** al grupo:
 
-1. En el canal: **URL** `udp://230.126.126.149:8000`, **TTL** `32`, **pkt_size** `1316` → Guardar → **📡 Aplicar cambios en OBS**. (La app guarda `udp://230.126.126.149:8000?ttl=32&pkt_size=1316` y el filtro Source Record lo honra.)
+1. En el canal: **URL** `udp://230.126.126.149:8000`, **TTL** `32`, **pkt_size** `1316` → Guardar (se aplica solo en OBS). (La app guarda `udp://230.126.126.149:8000?ttl=32&pkt_size=1316` y el filtro Source Record lo honra.)
 2. En cada receptor, VLC: `Media → Open Network Stream → udp://@230.126.126.149:8000`. **El `@` es obligatorio** — sin él VLC no se une al grupo y no recibe nada. En unicast se usa `udp://@:8000` (solo puerto).
 3. Para verificar que los paquetes llegan a un equipo sin instalar nada, en PowerShell del receptor:
    ```powershell
@@ -340,7 +323,7 @@ Si la URL destino del canal es una IP **multicast** (primer octeto 224–239, ej
 
 **Red**: dentro de la misma subred el multicast funciona con IGMP snooping (lo habitual). **Entre subredes** (otro edificio) el router debe tener enrutamiento multicast habilitado (PIM) — eso no lo configura la app; si el listener de arriba no muestra nada en el receptor pero sí en el emisor, es un ticket para Redes. Mientras tanto, unicast directo a la IP del receptor (`udp://10.x.x.x:8000`, TTL sin setear) funciona con el enrutamiento normal.
 
-### Opción C — Autorizar VLC en el firewall (si tenés admin)
+### Opción D — Autorizar VLC en el firewall (si tenés admin)
 
 Si tenés permisos de administrador en la máquina receptora y querés que VLC funcione sin trucos:
 
@@ -360,9 +343,7 @@ En entornos corporativos, Windows Defender Firewall **suele bloquear inbound UDP
 
 **Verificación rápida**: si el archivo `.ts` grabado se ve bien pero el UDP en vivo con VLC es negro, es firewall.
 
-**Workaround sin admin** — el botón 🎥 Preview de la app usa este pattern: Python bindea el puerto UDP (permitido por firewall) y pipea el stream por stdin a ffplay. **Nunca abre puerto UDP con el reproductor directamente**.
-
-Script equivalente que podés usar en cualquier máquina con Python + ffmpeg:
+**Workaround sin admin** — el script `scripts/play_canal_local.py` bindea el puerto UDP desde Python (permitido por firewall) y pipea el stream por stdin a ffplay. **Nunca abre el puerto UDP con el reproductor directamente**. Requiere Python + ffmpeg (`ffplay` en PATH) en la máquina donde se corre:
 
 ```powershell
 venv\Scripts\python.exe scripts\play_canal_local.py 9001

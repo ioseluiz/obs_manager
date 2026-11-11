@@ -42,7 +42,6 @@ ENV/
 build/
 dist/
 Output/
-vendor/ffmpeg/
 *.spec.bak
 
 # ==========================================
