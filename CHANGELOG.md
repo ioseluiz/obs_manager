@@ -49,6 +49,18 @@
   desplegables de combos. Test: `scripts/test_theme_palette.py` simula
   un SO oscuro y comprueba el render.
 
+- **Al arrancar, Producción escondía parte de la pantalla**
+  (`views/produccion_view.py`, `views/main_window.py`). La vista no
+  gestionaba su propio scroll, así que `MainWindow` la envolvía en un
+  scroll de página; como su tamaño natural (~810 px) supera el área útil
+  a 1366×768, los botones del sidebar de canales y el final de la playlist
+  quedaban fuera de vista hasta desplazar toda la página. Ahora Producción
+  llena el área disponible y la lista de canales y la tabla de playlist
+  scrollean por dentro (`responsive-scroll`, como Inicio y Calendario).
+  Además la ventana inicial usa hasta 900 px de alto (antes 768) cuando la
+  pantalla lo permite y se centra en el área útil. Test en
+  `scripts/test_produccion_view_smoke.py`.
+
 - **Previews de Inicio sin barras negras**
   (`views/widgets/channel_preview_card.py`, `controllers/home_controller.py`).
   El área de preview de cada tarjeta no tenía proporción fija: el layout le

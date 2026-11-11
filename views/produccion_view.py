@@ -35,6 +35,12 @@ class ProduccionView(QWidget):
         self.canal_model = canal_model
         self.scene_model = scene_model
         self.canal_controller = canal_controller
+        # Esta vista gestiona su propio scroll (lista de canales y tabla de
+        # playlist scrollean por dentro). Sin esta marca, MainWindow la
+        # envolvia en un scroll de pagina y, como su sizeHint (~810px)
+        # supera el area util a 1366x768, los botones del sidebar y el
+        # final de la playlist quedaban escondidos al arrancar.
+        self.setProperty("responsive-scroll", True)
         self._setup_ui()
         self._connect_signals()
         self.refresh()
