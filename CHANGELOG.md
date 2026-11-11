@@ -2,6 +2,18 @@
 
 ### Corregido
 
+- **Previews de Inicio sin barras negras**
+  (`views/widgets/channel_preview_card.py`, `controllers/home_controller.py`).
+  El área de preview de cada tarjeta no tenía proporción fija: el layout le
+  daba un rectángulo arbitrario y el `paintEvent` lo rellenaba de negro
+  antes de centrar la captura 16:9, de ahí las franjas. Ahora `_PreviewArea`
+  implementa `heightForWidth` con la proporción de la captura (16:9 por
+  defecto; la real del canvas de OBS al llegar el pixmap), y si el layout
+  aún entrega un rectángulo distinto, la imagen se centra con esquinas
+  redondeadas y el sobrante queda transparente (fondo de la tarjeta). La
+  captura se pide con la proporción del canvas (`preview_capture_size`)
+  en vez de un 480×270 fijo. Tests nuevos en `scripts/test_home_status.py`.
+
 - **La rueda del mouse ya no cambia valores de controles sin foco**
   (`views/widgets/wheel_guard.py`, nuevo). En Calendario de Cumpleaños,
   hacer scroll con la rueda pasando sobre los spinboxes de las secciones

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QThread, QBuffer, QIODevice
 from PyQt6.QtGui import QFontDatabase, QPixmap, QColor
-from controllers.home_controller import HomeController, _ChannelFramesWorker
+from controllers.home_controller import HomeController, _ChannelFramesWorker, preview_capture_size
 from core.workers import OBSWatchdog
 from models.obs_client import OBSClient, _GuardedClient
 from obsws_python.error import OBSSDKTimeoutError
@@ -202,6 +202,73 @@ class CardControllerTests(unittest.TestCase):
         self.assertTrue(card._preview.pixmap.isNull())
         self.assertTrue(all(not label.isHidden() for label in card._placeholder_labels))
         view.close()
+
+    @staticmethod
+    def _png(width, height, color='red'):
+        pixmap = QPixmap(width, height)
+        pixmap.fill(QColor(color))
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        pixmap.save(buffer, 'PNG')
+        return bytes(buffer.data())
+
+    def test_channel_preview_keeps_capture_aspect_without_black_bars(self):
+        view = HomeView()
+        view.set_channel_previews([('Piso 1', 'Piso 1', True)], 1)
+        card = view._preview_widgets[0]
+        area = card._preview
+        # Sin captura: 16:9 por defecto, y el layout puede consultar la altura.
+        self.assertTrue(area.hasHeightForWidth())
+        self.assertTrue(area.sizePolicy().hasHeightForWidth())
+        self.assertEqual(area.heightForWidth(320), 180)
+
+        view.set_channel_preview('Piso 1', self._png(480, 270))
+        self.assertEqual(area.heightForWidth(320), 180)
+        # Forzar una caja NO 16:9 (mas alta): la imagen va centrada y lo que
+        # sobra arriba/abajo NO es negro ni navy (antes se rellenaba todo de
+        # negro; el fondo del stylesheet es navy). grab() necesita la vista
+        # mostrada para que la geometria aplique.
+        view.show()
+        self.app.processEvents()
+        area.resize(400, 300)
+        self.app.processEvents()
+        image = area.grab().toImage()
+        self.assertEqual((image.width(), image.height()), (400, 300))
+        center = image.pixelColor(200, 150)
+        self.assertGreater(center.red(), 200)
+        self.assertLess(center.green(), 60)
+        # El sobrante es TRANSPARENTE (grab() lo deja con alpha 0: en la app
+        # se ve el fondo de la tarjeta) o claro; nunca un color oscuro opaco.
+        for x, y in ((2, 2), (397, 2), (2, 297), (397, 297)):
+            corner = image.pixelColor(x, y)
+            self.assertTrue(corner.alpha() == 0 or corner.lightness() > 120,
+                            f"esquina ({x},{y}) con franja opaca oscura: {corner.name()} a={corner.alpha()}")
+        # Dentro del rect objetivo (400x225 centrado: y en 38..262) es imagen.
+        self.assertGreater(image.pixelColor(10, 60).red(), 200)
+        self.assertGreater(image.pixelColor(390, 250).red(), 200)
+        # Sin captura vuelve el placeholder navy opaco del stylesheet.
+        view.set_channel_preview('Piso 1', None)
+        self.app.processEvents()
+        placeholder = area.grab().toImage().pixelColor(2, 2)
+        self.assertEqual(placeholder.alpha(), 255)
+        self.assertLess(placeholder.lightness(), 120)
+
+        # La proporcion sigue a la captura (canvas 4:3 -> caja 4:3).
+        view.set_channel_preview('Piso 1', self._png(640, 480))
+        self.assertEqual(area.heightForWidth(320), 240)
+        view.close()
+
+    def test_preview_capture_size_follows_obs_canvas(self):
+        self.assertEqual(preview_capture_size(SimpleNamespace(canvas_width=1920, canvas_height=1080)), (480, 270))
+        self.assertEqual(preview_capture_size(SimpleNamespace(canvas_width=1280, canvas_height=720)), (480, 270))
+        self.assertEqual(preview_capture_size(SimpleNamespace(canvas_width=1024, canvas_height=768)), (480, 360))
+        self.assertEqual(preview_capture_size(SimpleNamespace(canvas_width=0, canvas_height=0)), (480, 270))
+        self.assertEqual(preview_capture_size(Mock()), (480, 270), 'un Mock no numerico cae a 16:9')
+        obs = Mock(client=object(), canvas_width=1024, canvas_height=768)
+        obs.list_scene_names.return_value = ['Piso 1']
+        obs.get_scene_screenshot_bytes.return_value = b'frame'
+        _ChannelFramesWorker(obs, ['Piso 1']).run()
+        self.assertEqual(obs.get_scene_screenshot_bytes.call_args.args[:3], ('Piso 1', 480, 360))
 
     def test_channel_worker_captures_each_scene_and_skips_absent_sources(self):
         obs = Mock(client=object())
