@@ -33,7 +33,7 @@ class FakeObs:
 
 
 def main():
-    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
     app = QApplication.instance() or QApplication(sys.argv)
 
     from core import source_record_installer as sri
@@ -46,7 +46,30 @@ def main():
     exe = make_fake_obs(tmp / "obsportable", portable=True)
     settings = {"host": "localhost", "obs_exe_path": str(exe)}
 
-    with patch.object(sri, "bundled_root", return_value=vendor):
+    with patch.object(sri, "bundled_root", return_value=vendor), \
+         patch.object(sri.obs_launcher, "find_running_obs_executable", return_value=None), \
+         patch.object(sri.obs_launcher, "find_obs_executable", return_value=None):
+        # --- OBS local sin ruta conocida: el boton pide el exe en vez de quedar gris ---
+        print("[local sin obs64.exe detectado]")
+        dlg = SourceRecordInstallDialog(FakeObs(False), {"host": "localhost", "obs_exe_path": ""}, is_local=True)
+        _check(dlg._local is None, "sin deteccion automatica")
+        _check(dlg.btn_install.isEnabled(), "Instalar sigue habilitado")
+        _check("elegir el archivo obs64.exe" in dlg.lbl_context.text(), "contexto explica que se pedira el exe")
+        with patch.object(QFileDialog, "getOpenFileName", return_value=(str(exe), "")), \
+             patch.object(QMessageBox, "information") as info, \
+             patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            dlg.btn_install.click()
+        _check(dlg._local is not None and dlg._local.portable, "exe elegido queda fijado (portable)")
+        _check(info.called, "se explico al usuario por que se pide el exe")
+        dlg.close()
+
+        # --- OBS local detectado por el proceso en ejecucion ---
+        print("[local detectado por proceso]")
+        with patch.object(sri.obs_launcher, "find_running_obs_executable", return_value=str(exe)):
+            dlg = SourceRecordInstallDialog(FakeObs(False), {"host": "localhost", "obs_exe_path": ""}, is_local=True)
+            _check(dlg._local is not None and dlg._local.portable, "detectado via proceso obs64.exe")
+            dlg.close()
+
         # --- Plugin ausente, OBS local portable ---
         print("[local portable, plugin ausente]")
         dlg = SourceRecordInstallDialog(FakeObs(False), settings, is_local=True)

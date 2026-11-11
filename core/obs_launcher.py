@@ -74,6 +74,74 @@ def is_obs_running():
         return False
 
 
+def find_running_obs_executable():
+    """Ruta completa del obs64.exe que esta corriendo ahora mismo, o None.
+
+    Es la mejor fuente cuando la app esta conectada a un OBS local: cubre
+    el OBS portable (que no esta en el registro ni en Program Files) sin
+    que el usuario tenga que configurar OBS_EXE_PATH. Usa la API Win32
+    (Toolhelp + QueryFullProcessImageName), sin subprocesos.
+    """
+    if not _IS_WINDOWS:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes as wt
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wt.DWORD), ("cntUsage", wt.DWORD),
+                ("th32ProcessID", wt.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wt.DWORD), ("cntThreads", wt.DWORD),
+                ("th32ParentProcessID", wt.DWORD), ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", wt.DWORD), ("szExeFile", ctypes.c_wchar * 260),
+            ]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateToolhelp32Snapshot.restype = wt.HANDLE
+        k32.CreateToolhelp32Snapshot.argtypes = [wt.DWORD, wt.DWORD]
+        k32.Process32FirstW.argtypes = [wt.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        k32.Process32NextW.argtypes = [wt.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        k32.OpenProcess.restype = wt.HANDLE
+        k32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+        k32.QueryFullProcessImageNameW.argtypes = [wt.HANDLE, wt.DWORD, wt.LPWSTR, ctypes.POINTER(wt.DWORD)]
+        k32.CloseHandle.argtypes = [wt.HANDLE]
+
+        TH32CS_SNAPPROCESS = 0x00000002
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        INVALID_HANDLE_VALUE = wt.HANDLE(-1).value
+
+        snapshot = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snapshot == INVALID_HANDLE_VALUE or not snapshot:
+            return None
+        pids = []
+        try:
+            entry = PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(entry)
+            ok = k32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while ok:
+                if entry.szExeFile.lower() == "obs64.exe":
+                    pids.append(entry.th32ProcessID)
+                ok = k32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            k32.CloseHandle(snapshot)
+
+        for pid in pids:
+            handle = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                continue
+            try:
+                buf = ctypes.create_unicode_buffer(32768)
+                size = wt.DWORD(len(buf))
+                if k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)) and buf.value:
+                    return buf.value
+            finally:
+                k32.CloseHandle(handle)
+    except Exception as e:
+        log.debug("No se pudo obtener la ruta del obs64.exe en ejecución: %s", e)
+    return None
+
+
 def launch_obs(exe_path):
     """Lanza OBS de forma desapegada. Devuelve (ok, mensaje).
 

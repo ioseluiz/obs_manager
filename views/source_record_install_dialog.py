@@ -18,7 +18,8 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QTextEdit, QVBoxLayout,
+    QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTextEdit,
+    QVBoxLayout,
 )
 
 from core import source_record_installer as sri
@@ -148,28 +149,57 @@ class SourceRecordInstallDialog(ResponsiveDialog):
                 self.lbl_context.setText(f"OBS en este equipo: {self._local.describe()}")
             else:
                 self.lbl_context.setText(
-                    "OBS en este equipo, pero no se encontró obs64.exe. Configura la ruta "
-                    "en Ajustes → Lanzamiento automático para poder instalar desde aquí."
+                    "OBS en este equipo, pero no se encontró obs64.exe (ni corriendo, ni en "
+                    "el registro). Al pulsar Instalar podrás elegir el archivo obs64.exe."
                 )
         else:
             self.lbl_context.setText(
                 f"OBS remoto en {host or '?'}: solo es posible exportar el paquete."
             )
-        can_install = self._is_local and self._local is not None and sri.is_bundled()
-        self.btn_install.setEnabled(can_install)
-        self.btn_export.setEnabled(sri.is_bundled())
-        if not sri.is_bundled():
-            self.btn_install.setToolTip(
-                "El plugin no viene embebido en esta copia (falta vendor/source-record). "
-                "Si corres desde código fuente, ejecuta scripts\\bundle_source_record.py."
-            )
+        bundled = sri.is_bundled()
+        # Con OBS local el boton siempre esta activo: si aun no sabemos donde
+        # esta obs64.exe, al pulsarlo se pide elegirlo (un boton gris sin
+        # explicacion parece "no funciona").
+        self.btn_install.setEnabled(self._is_local and bundled)
+        self.btn_export.setEnabled(bundled)
+        if not bundled:
+            tip = ("El plugin no viene embebido en esta copia (falta vendor/source-record). "
+                   "Si corres desde código fuente, ejecuta scripts\\bundle_source_record.py.")
+        elif not self._is_local:
+            tip = "OBS está en otro equipo: usa Exportar paquete."
+        elif self._local is None:
+            tip = "Se te pedirá la ubicación de obs64.exe."
+        else:
+            tip = f"Instala Source Record {sri.PLUGIN_VERSION} en {self._local.root}"
+        self.btn_install.setToolTip(tip)
+
+    def _ask_obs_executable(self) -> bool:
+        """Pide al usuario el obs64.exe cuando no se pudo detectar. True si quedó fijado."""
+        QMessageBox.information(
+            self, "Ubicar OBS Studio",
+            "No se encontró automáticamente el obs64.exe de este equipo (es normal con "
+            "OBS portable cerrado). Selecciona el archivo obs64.exe de tu instalación "
+            "(normalmente en <carpeta de OBS>\\bin\\64bit\\obs64.exe).",
+        )
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Selecciona obs64.exe", "", "OBS Studio (obs64.exe);;Ejecutables (*.exe)",
+        )
+        if not path:
+            return False
+        local = sri.detect_local_obs(path)
+        if local is None:
+            QMessageBox.warning(self, "Archivo no válido", f"No se pudo usar:\n{path}")
+            return False
+        self._local = local
+        self._refresh_status()
+        return True
 
     # ------------------------------------------------------------------
     # Acciones
     # ------------------------------------------------------------------
 
     def _on_install(self) -> None:
-        if not self._local:
+        if self._local is None and not self._ask_obs_executable():
             return
         plan = sri.plan_install(self._local, obs_version=self._obs_version())
         answer = QMessageBox.question(

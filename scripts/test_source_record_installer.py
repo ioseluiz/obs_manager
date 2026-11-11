@@ -119,9 +119,28 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(local.root, (self.tmp / "p").resolve())
         exe_i = make_fake_obs(self.tmp / "i", False)
         self.assertFalse(sri.detect_local_obs(str(exe_i)).portable)
-        self.assertIsNone(sri.detect_local_obs(str(self.tmp / "missing.exe")) if False else None)
-        with patch.object(sri.obs_launcher, "find_obs_executable", return_value=None):
+        # Sin hint: primero el obs64.exe en ejecucion, luego registro/Program Files.
+        with patch.object(sri.obs_launcher, "find_running_obs_executable", return_value=str(exe_p)), \
+             patch.object(sri.obs_launcher, "find_obs_executable", return_value=str(exe_i)):
+            self.assertTrue(sri.detect_local_obs("").portable, "el proceso en ejecucion manda")
+            self.assertTrue(sri.detect_local_obs(str(self.tmp / "missing.exe")).portable,
+                            "hint inexistente -> cae al proceso en ejecucion")
+        with patch.object(sri.obs_launcher, "find_running_obs_executable", return_value=None), \
+             patch.object(sri.obs_launcher, "find_obs_executable", return_value=str(exe_i)):
+            self.assertFalse(sri.detect_local_obs("").portable, "sin proceso -> registro")
+        with patch.object(sri.obs_launcher, "find_running_obs_executable", return_value=None), \
+             patch.object(sri.obs_launcher, "find_obs_executable", return_value=None):
             self.assertIsNone(sri.detect_local_obs(""))
+
+    @unittest.skipUnless(sys.platform == "win32", "solo Windows")
+    def test_find_running_obs_executable_shape(self):
+        from core import obs_launcher
+        found = obs_launcher.find_running_obs_executable()
+        if found is None:
+            self.assertFalse(obs_launcher.is_obs_running(), "OBS corre pero no se obtuvo su ruta")
+        else:
+            self.assertTrue(found.lower().endswith("obs64.exe"))
+            self.assertTrue(Path(found).is_file())
 
     def test_parse_version(self):
         self.assertEqual(sri.parse_version("32.1.2"), (32, 1, 2))
