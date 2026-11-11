@@ -7,8 +7,8 @@ Muestra la escena compuesta de cada canal recibida desde OBS.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt, QRect
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
+from PyQt6.QtCore import QSize, Qt, QRect, QRectF
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QStackedLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from views.theme import COLORS, SPACING
@@ -28,20 +28,66 @@ def _gradient_pixmap(w: int, h: int, c1: str, c2: str) -> QPixmap:
 
 
 class _PreviewArea(QWidget):
+    """Area que muestra la captura del canal respetando su proporcion.
+
+    - `heightForWidth` hace que el layout le de un rectangulo con la
+      proporcion de la captura (16:9 por defecto; la del canvas de OBS
+      cuando llega un pixmap), asi la imagen llena la caja sin franjas.
+    - Si el layout aun asi entrega un rectangulo distinto, la imagen se
+      centra en `_target_rect()` y el sobrante queda TRANSPARENTE (se ve
+      el fondo de la tarjeta), nunca una franja negra.
+    """
+
+    CORNER_RADIUS = 6
+
     def __init__(self):
         super().__init__()
         self.pixmap = QPixmap()
+        self._ratio = (16, 9)
+
+    # --- proporcion -----------------------------------------------------
+
+    def set_ratio(self, width: int, height: int) -> None:
+        if width > 0 and height > 0 and (width, height) != self._ratio:
+            self._ratio = (int(width), int(height))
+            self.updateGeometry()
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        rw, rh = self._ratio
+        return max(1, round(width * rh / rw))
+
+    def sizeHint(self) -> QSize:
+        return QSize(320, self.heightForWidth(320))
+
+    def _target_rect(self) -> QRect:
+        """Rect centrado con la proporcion objetivo que cabe en el widget."""
+        w, h = self.width(), self.height()
+        rw, rh = self._ratio
+        target_h = round(w * rh / rw)
+        if target_h <= h:
+            return QRect(0, (h - target_h) // 2, w, target_h)
+        target_w = round(h * rw / rh)
+        return QRect((w - target_w) // 2, 0, target_w, h)
+
+    # --- pintado --------------------------------------------------------
 
     def paintEvent(self, event):
-        super().paintEvent(event)
         if self.pixmap.isNull():
+            # Placeholder: fondo navy del stylesheet + icono/leyenda overlay.
+            super().paintEvent(event)
             return
+        # Con captura NO pintamos el fondo del stylesheet ni rellenamos de
+        # negro: solo la imagen, en su rect, con esquinas redondeadas.
         painter = QPainter(self)
-        painter.fillRect(self.rect(), Qt.GlobalColor.black)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        size = self.pixmap.size().scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio)
-        target = QRect((self.width() - size.width()) // 2,
-                       (self.height() - size.height()) // 2, size.width(), size.height())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        target = self._target_rect()
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(target), self.CORNER_RADIUS, self.CORNER_RADIUS)
+        painter.setClipPath(clip)
         painter.drawPixmap(target, self.pixmap)
 
 
@@ -95,12 +141,22 @@ class ChannelPreviewCard(QWidget):
     def _build_preview_block(self) -> QWidget:
         container = _PreviewArea()
         container.setMinimumHeight(self.PREVIEW_HEIGHT)
-        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Expanding en ancho; en alto el layout consulta heightForWidth()
+        # para mantener la proporcion de la captura.
+        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        container.setSizePolicy(policy)
         container.setObjectName("ChannelPreviewArea")
         container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        container.setStyleSheet(
+        # Dos estilos: placeholder (degradado navy) y con captura (fondo
+        # transparente para que el sobrante muestre el fondo de la tarjeta).
+        # Qt pinta el fondo del stylesheet antes de paintEvent, asi que la
+        # unica forma fiable de quitarlo es cambiar el stylesheet.
+        self._preview_css_placeholder = (
             f"#ChannelPreviewArea {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, "
             f"stop:0 {COLORS['brand_navy']}, stop:1 {COLORS['brand_navy_dark']}); border-radius: 6px; }}")
+        self._preview_css_frame = "#ChannelPreviewArea { background: transparent; }"
+        container.setStyleSheet(self._preview_css_placeholder)
 
         overlay = QVBoxLayout(container)
         overlay.setContentsMargins(0, 0, 0, 0)
@@ -159,6 +215,17 @@ class ChannelPreviewCard(QWidget):
         if data:
             pixmap.loadFromData(data)
         self._preview.pixmap = pixmap
+        if not pixmap.isNull():
+            # La caja adopta la proporcion real de la captura (la del canvas
+            # de OBS), no una fija.
+            self._preview.set_ratio(pixmap.width(), pixmap.height())
+        # Con captura, fondo transparente (el sobrante fuera del rect de la
+        # imagen muestra el fondo de la tarjeta, no una franja navy/negra);
+        # sin captura, el degradado navy del placeholder. Solo se cambia el
+        # stylesheet en las transiciones para no repolir cada segundo.
+        css = self._preview_css_placeholder if pixmap.isNull() else self._preview_css_frame
+        if self._preview.styleSheet() != css:
+            self._preview.setStyleSheet(css)
         for label in self._placeholder_labels:
             label.setVisible(pixmap.isNull())
         self._preview.update()

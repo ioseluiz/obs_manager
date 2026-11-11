@@ -23,6 +23,27 @@ log = logging.getLogger(__name__)
 REFRESH_INTERVAL_MS = 5000
 
 
+_PREVIEW_WIDTH = 480
+
+
+def preview_capture_size(obs_client, width: int = _PREVIEW_WIDTH) -> tuple[int, int]:
+    """Tamano de captura con la proporcion real del canvas de OBS.
+
+    `OBSClient` expone `canvas_width/canvas_height` (GetVideoSettings al
+    conectar; 1920x1080 por defecto). Pedir la captura con esa proporcion
+    evita que OBS la estire y permite a la tarjeta de Inicio adoptar el
+    mismo aspecto. Cualquier valor invalido cae a 16:9.
+    """
+    try:
+        cw = int(obs_client.canvas_width)
+        ch = int(obs_client.canvas_height)
+    except (TypeError, ValueError, AttributeError):
+        cw, ch = 1920, 1080
+    if cw <= 0 or ch <= 0:
+        cw, ch = 1920, 1080
+    return width, max(1, round(width * ch / cw))
+
+
 class _ChannelFramesWorker(QThread):
     frame_ready = pyqtSignal(object, str, object)
 
@@ -37,13 +58,14 @@ class _ChannelFramesWorker(QThread):
             scenes = set(self.obs_client.list_scene_names() or [])
         except Exception:
             scenes = set()
+        width, height = preview_capture_size(self.obs_client)
         for name in self.names:
             if self.isInterruptionRequested() or self.obs_client.client is not self.session:
                 break
             data = None
             try:
                 if name in scenes:
-                    data = self.obs_client.get_scene_screenshot_bytes(name, 480, 270, "jpg", 75)
+                    data = self.obs_client.get_scene_screenshot_bytes(name, width, height, "jpg", 75)
             except Exception as exc:
                 log.debug("Miniatura de %s no disponible: %s", name, exc)
             self.frame_ready.emit(self.session, name, data)
