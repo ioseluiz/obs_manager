@@ -185,6 +185,85 @@ def _build_qss() -> str:
     }}
 
     /* ============================================================
+       Listas y tablas — colores explicitos para NO depender de la
+       paleta del sistema (Windows en modo oscuro daba lista negra y
+       seleccion ilegible).
+       ============================================================ */
+
+    QListWidget, QListView, QTreeView, QTreeWidget, QTableView, QTableWidget {{
+        background-color: {c["bg_input"]};
+        alternate-background-color: {c["bg_app"]};
+        color: {c["text_primary"]};
+        border: 1px solid {c["border_strong"]};
+        border-radius: {r["sm"]}px;
+        selection-background-color: {c["accent_primary"]};
+        selection-color: {c["text_inverse"]};
+        outline: none;
+    }}
+
+    QListWidget::item, QListView::item, QTreeView::item, QTableView::item {{
+        color: {c["text_primary"]};
+        padding: 2px 4px;
+    }}
+
+    QListWidget::item:selected, QListView::item:selected,
+    QTreeView::item:selected, QTableView::item:selected {{
+        background-color: {c["accent_primary"]};
+        color: {c["text_inverse"]};
+    }}
+
+    QListWidget::item:hover, QListView::item:hover,
+    QTreeView::item:hover, QTableView::item:hover {{
+        background-color: {c["bg_muted"]};
+        color: {c["text_primary"]};
+    }}
+
+    QListWidget::item:selected:hover, QListView::item:selected:hover,
+    QTreeView::item:selected:hover, QTableView::item:selected:hover {{
+        background-color: {c["accent_primary_hover"]};
+        color: {c["text_inverse"]};
+    }}
+
+    QHeaderView::section {{
+        background-color: {c["bg_muted"]};
+        color: {c["text_primary"]};
+        border: none;
+        border-right: 1px solid {c["border_default"]};
+        border-bottom: 1px solid {c["border_default"]};
+        padding: {s["xs"]}px;
+        font-weight: bold;
+    }}
+
+    QTableCornerButton::section {{
+        background-color: {c["bg_muted"]};
+        border: none;
+    }}
+
+    QMenu {{
+        background-color: {c["bg_panel"]};
+        color: {c["text_primary"]};
+        border: 1px solid {c["border_default"]};
+    }}
+    QMenu::item:selected {{
+        background-color: {c["accent_primary"]};
+        color: {c["text_inverse"]};
+    }}
+
+    QToolTip {{
+        background-color: {c["bg_panel"]};
+        color: {c["text_primary"]};
+        border: 1px solid {c["border_strong"]};
+        padding: {s["xs"]}px;
+    }}
+
+    QComboBox QAbstractItemView {{
+        background-color: {c["bg_input"]};
+        color: {c["text_primary"]};
+        selection-background-color: {c["accent_primary"]};
+        selection-color: {c["text_inverse"]};
+    }}
+
+    /* ============================================================
        QTabWidget (legacy — se mantiene mientras no se complete Fase 2)
        ============================================================ */
 

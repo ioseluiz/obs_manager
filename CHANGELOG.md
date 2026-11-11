@@ -37,6 +37,18 @@
 
 ### Corregido
 
+- **Colores negros / selección ilegible en equipos con Windows en modo
+  oscuro** (`views/theme/palette.py`, `views/theme/qss.py`, `main.py`).
+  Reporte de producción: lista de canales con fondo negro y la fila
+  seleccionada de la playlist con texto oscuro sobre azul. Qt 6 sigue el
+  tema del sistema y el QSS no fijaba el fondo de listas ni los colores
+  de selección/cabeceras, así que salían de la paleta oscura del SO.
+  Ahora `apply_light_theme()` pide el esquema claro (`setColorScheme`),
+  fija una `QPalette` clara completa desde los tokens y el QSS estiliza
+  explícitamente listas, tablas, selección, cabeceras, menús, tooltips y
+  desplegables de combos. Test: `scripts/test_theme_palette.py` simula
+  un SO oscuro y comprueba el render.
+
 - **Previews de Inicio sin barras negras**
   (`views/widgets/channel_preview_card.py`, `controllers/home_controller.py`).
   El área de preview de cada tarjeta no tenía proporción fija: el layout le
