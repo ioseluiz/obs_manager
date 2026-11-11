@@ -103,11 +103,14 @@ def exe_file_version(path) -> tuple[int, int, int] | None:
                         ("dwProductVersionMS", ctypes.c_uint32), ("dwProductVersionLS", ctypes.c_uint32)]
 
         info = ctypes.cast(ptr, ctypes.POINTER(VS_FIXEDFILEINFO)).contents
-        ms, ls = info.dwProductVersionMS, info.dwProductVersionLS
-        if ms or ls:
-            return (ms >> 16, ms & 0xFFFF, ls >> 16)
-        # OBS deja los campos numericos en 0 y solo rellena los textos
-        # (ProductVersion = "32.1.2"): leer StringFileInfo.
+        # OBS rellena FileVersion (32.1.2.0) pero deja ProductVersion en
+        # 0.0.0.0 — igual que Inno (GetVersionNumbersString), usamos la de
+        # archivo primero.
+        for ms, ls in ((info.dwFileVersionMS, info.dwFileVersionLS),
+                       (info.dwProductVersionMS, info.dwProductVersionLS)):
+            if ms or ls:
+                return (ms >> 16, ms & 0xFFFF, ls >> 16)
+        # Ultimo recurso: los textos de StringFileInfo ("32.1.2").
         if not version_dll.VerQueryValueW(buf, ctypes.c_wchar_p("\\VarFileInfo\\Translation"),
                                           ctypes.byref(ptr), ctypes.byref(length)):
             return None
