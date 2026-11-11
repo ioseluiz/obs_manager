@@ -96,6 +96,11 @@ class _FakeReqClient:
         )
         return _FakeResp(scene_item_id=sid, input_uuid=f"fake-{input_name}")
 
+    def get_input_list(self, input_kind=None):
+        # v2.1.0: el controller consulta los inputs existentes antes de crear
+        # el placeholder (evita el codigo 601 "input already exists").
+        return _FakeResp(inputs=[{"inputName": n} for n in sorted(self._inputs)])
+
     def get_scene_item_id(self, scene_name, source_name, offset=None):
         for it in self._items_by_scene.get(scene_name, []):
             if it["sourceName"] == source_name:
