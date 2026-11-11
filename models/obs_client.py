@@ -185,6 +185,55 @@ class OBSClient:
                 if self.connected_since is not None else None)
             return info
 
+    # --- PLUGIN SOURCE RECORD ---
+    SOURCE_RECORD_FILTER_KIND = "source_record_filter"
+
+    def list_source_filter_kinds(self):
+        """Kinds de filtro disponibles en OBS (GetSourceFilterKindList).
+
+        Devuelve un set, o None si no hay conexión o la petición falla
+        (obs-websocket < 5.2 no la implementa).
+        """
+        if not self.client:
+            return None
+        with self._client_lock:
+            session = self.client
+            if session is None:
+                return None
+            try:
+                resp = session.get_source_filter_kind_list()
+            except Exception as exc:
+                log.debug("GetSourceFilterKindList falló: %s", exc)
+                return None
+            kinds = getattr(resp, "source_filter_kinds", None)
+            if kinds is None:
+                kinds = getattr(resp, "sourceFilterKinds", None)
+            return set(kinds or [])
+
+    def has_source_record(self):
+        """True/False si pudimos comprobar si el plugin Source Record está
+        cargado en OBS; None si no hay conexión o no se pudo determinar."""
+        kinds = self.list_source_filter_kinds()
+        if kinds is not None:
+            return self.SOURCE_RECORD_FILTER_KIND in kinds
+        # Fallback para OBS viejos sin GetSourceFilterKindList: pedir los
+        # defaults del kind. Si OBS responde, el plugin existe.
+        if not self.client:
+            return None
+        with self._client_lock:
+            session = self.client
+            if session is None:
+                return None
+            try:
+                session.get_source_filter_default_settings(self.SOURCE_RECORD_FILTER_KIND)
+                return True
+            except Exception as exc:
+                msg = str(exc).lower()
+                if any(k in msg for k in ("kind", "not found", "invalid", "600", "no such")):
+                    return False
+                log.debug("Comprobación de Source Record no concluyente: %s", exc)
+                return None
+
     # --- FUNCIONES DEL ROTADOR ---
     def change_scene(self, scene_name):
         """Cambia la escena activa en OBS. Loguea el motivo si falla.

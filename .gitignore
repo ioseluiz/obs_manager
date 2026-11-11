@@ -42,6 +42,8 @@ ENV/
 build/
 dist/
 Output/
+# Binarios de terceros descargados en build (scripts/bundle_*.py)
+vendor/
 *.spec.bak
 
 # ==========================================

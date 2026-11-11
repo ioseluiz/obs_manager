@@ -139,7 +139,7 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 **Requeridos siempre:**
 * **Python 3.10+** (o el instalador `.exe` que ya trae Python embebido)
 * **OBS Studio 28.0+** con WebSocket habilitado
-* **Plugin Source Record de Exeldro** — necesario para canales multi-salida
+* **Plugin Source Record de Exeldro** — necesario para canales multi-salida. **Viene embebido en la app**: el instalador lo instala en un OBS Studio instalado; para OBS portable o remoto, Ajustes → Plugin Source Record (ver Instalación).
 * **Librerías Python:** `PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`
 
 ## 🚀 Instalación y Configuración
@@ -181,13 +181,19 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 3. Pulsar **Probar conexión** — valida sin guardar. Si sale verde ✓, guardá.
 4. La app genera automáticamente un archivo `.env` en `%LOCALAPPDATA%\OBS_Automation_Manager\` para persistir la configuración.
 
-### 🔌 Instalar el plugin Source Record (para canales multi-salida)
+### 🔌 Plugin Source Record (para canales multi-salida)
 
-Todos los canales transmiten a través del plugin **Source Record** de Exeldro — en v2 es **obligatorio** (ya no existe el rotador global del Program de OBS).
+Todos los canales transmiten a través del plugin **Source Record** de Exeldro — en v2 es **obligatorio** (ya no existe el rotador global del Program de OBS). **No hace falta descargarlo**: la app lo lleva embebido (versión 0.5.0, GPL-2.0, binario sin modificar; `LICENSE` y `SOURCE.txt` en `vendor/source-record/` del paquete) y lo instala por ti:
 
-1. Descargar desde: https://obsproject.com/forum/resources/source-record.1285/ (o la última versión estable en GitHub Releases del plugin).
-2. Ejecutar el instalador (`.exe`). Instala en la carpeta de OBS automáticamente.
-3. Reiniciar OBS. Verificar: click derecho sobre cualquier escena → **Filtros** → **Añadir filtro** → debe aparecer **"Source Record"** en la lista.
+| Dónde corre OBS | Quién lo instala | Dónde queda |
+|---|---|---|
+| **Instalado** en el mismo equipo (`C:\Program Files\obs-studio`) | El **instalador** de la app (tarea "Instalar el plugin Source Record", marcada por defecto; sin admin) | `C:\ProgramData\obs-studio\plugins\source-record\` — estructura clásica `bin\64bit` si OBS ≤ 32, nueva si OBS ≥ 33 |
+| **Portable** en el mismo equipo | La app: **Ajustes → Plugin Source Record → Instalar en este OBS** (usa la ruta de `obs64.exe` de Ajustes → Lanzamiento automático) | OBS ≥ 33: `<raíz>\plugins\source-record\`; OBS ≤ 32: `<raíz>\obs-plugins\64bit\` + `<raíz>\data\obs-plugins\source-record\` |
+| **Remoto** (otro equipo) | La app: **Ajustes → Plugin Source Record → Exportar paquete** → zip en Descargas con `LEEME.txt` | Lo que diga el `LEEME.txt` según la versión de OBS del servidor |
+
+Tras instalar hay que **cerrar y volver a abrir OBS**. Al conectar, la app comprueba si OBS expone el filtro Source Record; si falta, avisa y ofrece instalarlo (el aviso se puede silenciar con "No volver a avisar"). Comprobación manual: click derecho sobre cualquier escena → **Filtros** → **Añadir filtro** → debe aparecer **"Source Record"**.
+
+Para desarrolladores que corren desde código fuente: `python scripts/bundle_source_record.py` descarga el plugin (SHA-256 fijado) a `vendor/source-record/`; `build.bat` y el workflow de release lo hacen solos.
 
 ## 🌐 Conectar a OBS en otro equipo
 
@@ -246,7 +252,7 @@ La app se organiza en pestañas en la barra superior. Estos son los primeros pas
 
 ### Flujo típico
 
-1. Verificar que el plugin **Source Record** está instalado en OBS (ver Instalación).
+1. Verificar que OBS tiene cargado el plugin **Source Record** (la app avisa al conectar si falta; ver *Plugin Source Record* en Instalación).
 2. En la primera conexión, la app te va a preguntar **"¿Calibrar ahora?"** — aceptar. Toma ~4 minutos y mide cuántos canales aguanta el equipo por encoder. Ver *📊 Calibración* más abajo.
 3. Ir a **Biblioteca de Escenas** y crear las secuencias (imágenes, videos, dashboards). Son el pool reusable: varios canales pueden referenciar la misma secuencia.
 4. Ir a **Producción → botón ➕ Nuevo canal en el sidebar**. Rellenar:

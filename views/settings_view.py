@@ -13,6 +13,7 @@ class SettingsDialog(QDialog):
     # Emitida al pulsar "Re-calibrar este equipo" (Fase 2e).
     recalibrate_requested = pyqtSignal()
     install_autopilot_v2_requested = pyqtSignal()
+    install_source_record_requested = pyqtSignal()
 
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
@@ -108,6 +109,31 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(cal_group)
 
+        # --- Plugin Source Record (canales multi-salida) ---
+        sr_group = QGroupBox("Plugin Source Record (canales multi-salida)")
+        sr_layout = QVBoxLayout(sr_group)
+
+        self.lbl_source_record_status = QLabel()
+        self.lbl_source_record_status.setWordWrap(True)
+        self.lbl_source_record_status.setProperty("role", "status-muted")
+        sr_layout.addWidget(self.lbl_source_record_status)
+
+        sr_row = QHBoxLayout()
+        sr_row.addStretch(1)
+        self.btn_install_source_record = QPushButton(
+            "🔌 Instalar / Verificar plugin Source Record"
+        )
+        self.btn_install_source_record.setToolTip(
+            "Instala el plugin embebido en el OBS de este equipo (instalado o "
+            "portable) o exporta un paquete para un OBS remoto, y verifica que "
+            "OBS lo tenga cargado."
+        )
+        sr_row.addWidget(self.btn_install_source_record)
+        sr_layout.addLayout(sr_row)
+
+        layout.addWidget(sr_group)
+        self.set_source_record_status(None)
+
         # --- Autopilot v2 (Fase F del port) ---
         ap_group = QGroupBox("Autopilot v2 (rotación persistente)")
         ap_layout = QVBoxLayout(ap_group)
@@ -152,6 +178,29 @@ class SettingsDialog(QDialog):
         self.btn_recalibrate.clicked.connect(self.recalibrate_requested.emit)
         self.btn_install_autopilot_v2.clicked.connect(
             self.install_autopilot_v2_requested.emit)
+        self.btn_install_source_record.clicked.connect(
+            self.install_source_record_requested.emit)
+
+    def set_source_record_status(self, present) -> None:
+        """present: True (cargado), False (no cargado), None (sin conexión)."""
+        if present is True:
+            self.lbl_source_record_status.setStyleSheet("color: #198754;")
+            self.lbl_source_record_status.setText(
+                "✅ Plugin Source Record detectado en OBS."
+            )
+        elif present is False:
+            self.lbl_source_record_status.setStyleSheet("color: #FD7E14;")
+            self.lbl_source_record_status.setText(
+                "⚠ OBS conectado pero el plugin Source Record NO está cargado: "
+                "los canales multi-salida no funcionarán. Instálalo desde aquí."
+            )
+        else:
+            self.lbl_source_record_status.setStyleSheet("")
+            self.lbl_source_record_status.setText(
+                "Necesario para que cada canal emita su salida UDP. Conéctate a OBS "
+                "para comprobar si está cargado; el instalador de la app lo instala "
+                "en un OBS Studio instalado normalmente."
+            )
 
     def _on_test_clicked(self):
         self.test_connection_requested.emit({

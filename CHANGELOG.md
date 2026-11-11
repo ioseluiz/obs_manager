@@ -1,5 +1,34 @@
 ## [Unreleased] — v2.2.0
 
+### Agregado — Instalación automática del plugin Source Record
+
+- **El instalador instala el plugin** (`installer.iss`): nueva tarea
+  "Instalar el plugin Source Record en OBS Studio", marcada por defecto y
+  visible solo si hay un OBS Studio instalado (registro / Program Files).
+  Copia el plugin a `C:\ProgramData\obs-studio\plugins\source-record\`
+  (escribible sin admin) con la estructura que corresponde a la versión de
+  OBS leída de `obs64.exe` (clásica `bin\64bit` en ≤ 32, nueva en ≥ 33).
+  No se borra al desinstalar la app. Primera sección `[Code]` del script.
+- **Plugin embebido en la app** (`scripts/bundle_source_record.py`,
+  `vendor/source-record/`): Source Record 0.5.0 (Exeldro, GPL-2.0),
+  descargado en build con SHA-256 fijado, en los dos layouts, con
+  `LICENSE` y `SOURCE.txt` de procedencia. Empaquetado vía `.spec`;
+  verificado en `release.yml`.
+- **Asistente en la app** (`views/source_record_install_dialog.py`,
+  `core/source_record_installer.py`): Ajustes → "Plugin Source Record" y
+  aviso automático al conectar si OBS no expone `source_record_filter`
+  (`OBSClient.has_source_record`, vía `GetSourceFilterKindList` con
+  fallback). Si OBS corre en este equipo, **Instalar en este OBS** copia el
+  plugin al lugar correcto: ProgramData para un OBS instalado, o la raíz
+  portable (`plugins\` en 33+, árbol `obs-plugins\64bit` + `data\obs-plugins`
+  en ≤ 32); luego pide cerrar y abrir OBS. Si OBS es remoto, **Exportar
+  paquete** genera un zip con la estructura lista y un `LEEME.txt`. El aviso
+  se muestra una vez por sesión y se puede silenciar
+  (`SOURCE_RECORD_PROMPT_DISMISSED` en el `.env`).
+- Tests: `scripts/test_source_record_installer.py` (plan de instalación
+  para las 4 combinaciones, copia, export, detección de portable, versión
+  del exe, `has_source_record`) y `scripts/test_source_record_dialog_smoke.py`.
+
 ### Corregido
 
 - **Previews de Inicio sin barras negras**
