@@ -1,22 +1,16 @@
-"""Regressions for startup repairs, bundled preview and safe logging; no OBS needed."""
-import io
+"""Regressions for startup repairs and safe logging; no OBS needed."""
 import logging
 from pathlib import Path
-import socket
 import sys
-import tempfile
-import threading
-import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt6.QtWidgets import QApplication
 from controllers.countdown_controller import CountdownController
 from controllers.canal_controller import CanalController
 from core.autopilot_client import AutopilotClientV2, CONFIG_SOURCE_V2, STATE_SOURCE_V2
-from core.channel_preview import find_ffplay, udp_endpoint, can_receive_locally, UdpPreview
 from core.logging_setup import RedactingFormatter, redact_secrets, register_secret
 
 
@@ -40,55 +34,6 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn('synthetic-secret-for-test', formatter.format(record))
         self.assertNotIn('old-secret', redact_secrets('{"password": "old-secret"}'))
 
-    def test_bundled_player_does_not_need_path_or_python_script(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            player = Path(tmp) / 'vendor/ffmpeg/bin/ffplay.exe'
-            player.parent.mkdir(parents=True)
-            player.touch()
-            with patch.object(sys, '_MEIPASS', tmp, create=True), patch('shutil.which', return_value=None):
-                self.assertEqual(find_ffplay(), str(player))
-
-    def test_udp_endpoints_and_remote_destinations(self):
-        self.assertEqual(udp_endpoint('udp://239.1.2.3:8000?pkt_size=1316'), ('239.1.2.3', 8000))
-        for invalid in ('http://localhost:80', 'udp://localhost', 'udp://localhost:99999'):
-            with self.assertRaises(ValueError):
-                udp_endpoint(invalid)
-        self.assertTrue(can_receive_locally('127.0.0.1'))
-        self.assertTrue(can_receive_locally('239.1.2.3'))
-        with patch('socket.socket') as sock:
-            sock.return_value.__enter__.return_value.getsockname.return_value = ('192.0.2.1', 123)
-            self.assertFalse(can_receive_locally('192.0.2.2'))
-
-    def test_udp_relay_transfers_packets_and_stops_without_another_datagram(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
-            reservation.bind(('127.0.0.1', 0))
-            port = reservation.getsockname()[1]
-        written = threading.Event()
-        class Sink(io.BytesIO):
-            def write(self, data):
-                result = super().write(data)
-                written.set()
-                return result
-            def close(self):
-                pass
-        process = Mock(stdin=Sink())
-        process.poll.return_value = None
-        preview = UdpPreview('127.0.0.1', port, 'Test', 'ffplay.exe')
-        with patch('core.channel_preview.subprocess.Popen', return_value=process):
-            preview.start()
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
-                    for _ in range(30):
-                        sender.sendto(b'video-packet', ('127.0.0.1', port))
-                        if written.wait(.05):
-                            break
-                self.assertTrue(written.is_set())
-                self.assertIn(b'video-packet', process.stdin.getvalue())
-            finally:
-                preview.stop()
-            self.assertFalse(preview._thread.is_alive())
-            process.terminate.assert_called()
-
     def test_absent_autopilot_never_requests_nonexistent_source(self):
         obs = Mock(client=Mock())
         obs.list_input_names.return_value = set()
@@ -100,21 +45,6 @@ class RepairTests(unittest.TestCase):
         obs.list_input_names.return_value = {CONFIG_SOURCE_V2, STATE_SOURCE_V2}
         obs.client.get_input_settings.return_value = SimpleNamespace(input_settings={'text': '{}'})
         self.assertTrue(client.is_installed())
-
-    def test_channel_scene_preview_does_not_query_a_self_nested_source(self):
-        from views.canal_detail_view import CanalDetailView
-        from PyQt6.QtWidgets import QWidget
-        view = QWidget()
-        view._canal_id = 1
-        view.canal_model = Mock()
-        view.canal_model.get_canal.return_value = {'nombre': 'Canal', 'url_destino': ''}
-        obs = Mock(client=object(), canvas_width=1920, canvas_height=1080)
-        view.canal_controller = Mock(obs_client=obs)
-        with patch('views.scene_preview_dialog.ScenePreviewDialog') as dialog:
-            CanalDetailView._on_preview(view)
-            self.assertIsNone(dialog.call_args.args[2])
-            dialog.return_value.show.assert_called_once()
-        view.close()
 
     def counter(self, scene='Canal'):
         counter = CountdownController.__new__(CountdownController)

@@ -137,15 +137,6 @@ class CanalDetailView(QWidget):
             "Útil cuando VLC recibe stream pero ve negro."
         )
         toolbar.addWidget(self.btn_diagnose)
-
-        self.btn_preview = QPushButton("Preview")
-        self.btn_preview.setMinimumHeight(32)
-        self.btn_preview.setToolTip(
-            "Abre una ventana con la salida UDP del canal. Usa Python + ffplay "
-            "vía stdin para esquivar el firewall corporativo que suele bloquear "
-            "UDP inbound a VLC/ffplay directamente. Requiere ffplay en PATH."
-        )
-        toolbar.addWidget(self.btn_preview)
         root.addLayout(toolbar)
 
         # Playlist frame
@@ -184,7 +175,6 @@ class CanalDetailView(QWidget):
         apply_icon(self.btn_next, "⏭", size=20)   # fallback nativo
         apply_icon(self.btn_stop, "⏹", size=20)   # fallback nativo
         apply_icon(self.btn_diagnose, "informacion", color="#FFFFFF")
-        apply_icon(self.btn_preview, "imagen_vista_previa", color="#FFFFFF")
         apply_icon(self.btn_add_item, "➕", color="#FFFFFF")
         apply_icon(self.btn_remove_item, "eliminar", color="#FFFFFF")
         apply_icon(self.btn_up_item, "subir", color="#FFFFFF")
@@ -222,7 +212,6 @@ class CanalDetailView(QWidget):
         self.btn_next.clicked.connect(self._on_next)
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_diagnose.clicked.connect(self._on_diagnose)
-        self.btn_preview.clicked.connect(self._on_preview)
 
         self.btn_add_item.clicked.connect(self._on_add_item)
         self.btn_remove_item.clicked.connect(self._on_remove_item)
@@ -283,7 +272,7 @@ class CanalDetailView(QWidget):
     def _set_controls_enabled(self, enabled: bool):
         for w in (self.btn_transmit, self.btn_play, self.btn_prev,
                   self.btn_pause, self.btn_next, self.btn_stop,
-                  self.btn_diagnose, self.btn_preview,
+                  self.btn_diagnose,
                   self.btn_add_item, self.btn_remove_item, self.btn_up_item,
                   self.btn_down_item, self.btn_edit_item):
             w.setEnabled(enabled)
@@ -441,58 +430,6 @@ class CanalDetailView(QWidget):
             return
         self.canal_controller.stop_rotator(self._canal_id)
         self._refresh_status_only()
-
-    def _on_preview(self):
-        from core.channel_preview import find_ffplay, udp_endpoint, can_receive_locally, UdpPreview
-        from PyQt6.QtWidgets import QApplication
-        if self._canal_id is None:
-            return
-        canal = self.canal_model.get_canal(self._canal_id)
-        if not canal:
-            return
-        title = str(canal.get("nombre") or "Canal")
-        obs = self.canal_controller.obs_client
-        if not obs.client:
-            QMessageBox.information(self, "Preview", "Conecta a OBS para visualizar el canal.")
-            return
-        def scene_preview(_reason=""):
-            from views.scene_preview_dialog import ScenePreviewDialog
-            # The channel is a composite scene, not an input nested inside
-            # itself. No source transform is needed for this preview.
-            dialog = ScenePreviewDialog(obs, title, None,
-                canvas_w=obs.canvas_width, canvas_h=obs.canvas_height,
-                parent=self)
-            notice = QLabel("Vista de la escena en OBS, sin audio. No verifica la recepción UDP en la pantalla destino.")
-            notice.setWordWrap(True)
-            dialog.layout().insertWidget(0, notice)
-            if not hasattr(self, '_scene_previews'):
-                self._scene_previews = []
-            self._scene_previews.append(dialog)
-            dialog.closed_by_user.connect(lambda: self._scene_previews.remove(dialog)
-                if dialog in self._scene_previews else None)
-            QApplication.instance().aboutToQuit.connect(dialog.close)
-            dialog.show()
-        try:
-            host, port = udp_endpoint(canal.get("url_destino") or "")
-        except ValueError:
-            scene_preview()
-            return
-        player = find_ffplay()
-        # Unicast to another screen never arrives at this machine. In that
-        # case the scene is previewed over the existing OBS connection.
-        if not player or not can_receive_locally(host):
-            scene_preview()
-            return
-        if not hasattr(self, '_udp_previews'):
-            self._udp_previews = {}
-        previous = self._udp_previews.get(self._canal_id)
-        if previous:
-            previous.stop()
-        preview = UdpPreview(host, port, title, player, self)
-        preview.unavailable.connect(scene_preview)
-        QApplication.instance().aboutToQuit.connect(preview.stop)
-        self._udp_previews[self._canal_id] = preview
-        preview.start()
 
     def _on_diagnose(self):
         """Muestra los settings efectivos del filtro udp_out en un diálogo.

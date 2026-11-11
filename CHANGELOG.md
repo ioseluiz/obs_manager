@@ -17,6 +17,30 @@
   anterior en la rama `fix/calendar-controls-lock` nunca llegó a `main`.
   Tests: `scripts/test_wheel_guard.py` (también en el step de CI).
 
+### Eliminado — Botón Preview de Producción e infraestructura ffplay
+
+- Se retira el botón **Preview** del panel de canal en Producción
+  (`views/canal_detail_view.py`): desde v2.1.0 la pestaña Inicio muestra
+  capturas reales de cada canal vía WebSocket (`GetSourceScreenshot`), que
+  cubre el caso de uso sin depender de recibir UDP localmente. El toolbar
+  del canal queda con Transmitir, controles de rotación y Diagnóstico.
+- Con el botón se elimina todo lo que solo él usaba: `core/channel_preview.py`
+  (relay UDP → stdin → ffplay y fallback a `ScenePreviewDialog`),
+  `scripts/bundle_ffplay.py`, el empaquetado de `vendor/ffmpeg` en
+  `OBS_Automation_Manager.spec` / `build.bat` / `release.yml` (incluida la
+  verificación `ffplay -version` en CI), el icono `imagen_vista_previa` y
+  los 4 tests asociados en `scripts/test_runtime_repairs.py`. El
+  instalador deja de incluir ffplay (~30 MB menos).
+- Se conservan `scripts/play_canal_local.py` y `scripts/probe_udp_stream.py`
+  como herramientas de diagnóstico por línea de comandos (requieren ffplay
+  en PATH).
+- `release.yml`: el cuerpo de la release ya no lleva notas hardcodeadas de
+  una versión concreta; enlaza al CHANGELOG.
+- README: tabla de botones del canal sin Preview ni "Aplicar cambios en OBS"
+  (ese botón ya no existe desde v2.1.0 — los cambios se aplican solos);
+  nueva "Opción A — En la pestaña Inicio"; renumerada la opción de firewall
+  como D.
+
 ## [2.1.0] - 2026-11-07
 
 - Reúne en una sola versión las mejoras de interfaz corporativa, logos, diseño adaptable, encabezados y simplificación de iconos posteriores a v2.0.0.
