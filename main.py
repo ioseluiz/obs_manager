@@ -4,7 +4,7 @@ import traceback
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon
-from views.styles import LIGHT_THEME_QSS
+from views.theme import apply_light_theme
 from controllers.main_controller import MainController
 from core.database import init_db  # <-- Importamos el inicializador de la BD
 from core.logging_setup import setup_logging
@@ -53,11 +53,10 @@ def main():
     app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(QIcon(str(BASE_DIR / "app_icon.ico")))
 
-    # Forzamos el estilo Fusion como base neutra para luego sobreescribirlo
-    app.setStyle("Fusion")
-
-    # Aplicamos el QSS global (fuerza Light Theme)
-    app.setStyleSheet(LIGHT_THEME_QSS)
+    # Tema claro corporativo: estilo Fusion + QPalette clara explicita + QSS.
+    # Sin la paleta explicita, Qt 6 adoptaba la paleta oscura de Windows en
+    # modo oscuro y las listas / selecciones salian negras o ilegibles.
+    apply_light_theme(app)
 
     # 3. Inicializamos la arquitectura MVC
     # Ahora el MainController y sus sub-controladores encontrarán las tablas creadas

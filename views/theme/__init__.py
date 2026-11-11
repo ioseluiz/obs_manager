@@ -12,6 +12,7 @@ de hardcodear hex, y aplicar `property roles` (p. ej.
 """
 from __future__ import annotations
 
+from .palette import apply_light_theme, build_light_palette
 from .qss import LIGHT_THEME_QSS
 from .tokens import COLORS, FONT_SIZES, RADII, SPACING
 
@@ -21,4 +22,6 @@ __all__ = [
     "LIGHT_THEME_QSS",
     "RADII",
     "SPACING",
+    "apply_light_theme",
+    "build_light_palette",
 ]

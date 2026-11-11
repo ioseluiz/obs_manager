@@ -34,7 +34,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           PYTHONIOENCODING: utf-8
         run: |
-          foreach ($test in @('test_home_status.py', 'test_runtime_repairs.py', 'test_autopilot_client_v2.py', 'test_autopilot_v2_controller.py', 'test_canal_detail_view_smoke.py', 'test_wheel_guard.py', 'test_source_record_installer.py', 'test_source_record_dialog_smoke.py')) {
+          foreach ($test in @('test_home_status.py', 'test_runtime_repairs.py', 'test_autopilot_client_v2.py', 'test_autopilot_v2_controller.py', 'test_canal_detail_view_smoke.py', 'test_wheel_guard.py', 'test_source_record_installer.py', 'test_source_record_dialog_smoke.py', 'test_theme_palette.py')) {
             python "scripts/$test"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
