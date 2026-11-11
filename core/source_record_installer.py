@@ -103,8 +103,27 @@ def exe_file_version(path) -> tuple[int, int, int] | None:
                         ("dwProductVersionMS", ctypes.c_uint32), ("dwProductVersionLS", ctypes.c_uint32)]
 
         info = ctypes.cast(ptr, ctypes.POINTER(VS_FIXEDFILEINFO)).contents
-        ms, ls = info.dwProductVersionMS, info.dwProductVersionLS
-        return (ms >> 16, ms & 0xFFFF, ls >> 16)
+        # OBS rellena FileVersion (32.1.2.0) pero deja ProductVersion en
+        # 0.0.0.0 — igual que Inno (GetVersionNumbersString), usamos la de
+        # archivo primero.
+        for ms, ls in ((info.dwFileVersionMS, info.dwFileVersionLS),
+                       (info.dwProductVersionMS, info.dwProductVersionLS)):
+            if ms or ls:
+                return (ms >> 16, ms & 0xFFFF, ls >> 16)
+        # Ultimo recurso: los textos de StringFileInfo ("32.1.2").
+        if not version_dll.VerQueryValueW(buf, ctypes.c_wchar_p("\\VarFileInfo\\Translation"),
+                                          ctypes.byref(ptr), ctypes.byref(length)):
+            return None
+        words = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint16))
+        for i in range(0, length.value // 2, 2):
+            lang, codepage = words[i], words[i + 1]
+            for key in ("ProductVersion", "FileVersion"):
+                sub = ctypes.c_wchar_p(f"\\StringFileInfo\\{lang:04x}{codepage:04x}\\{key}")
+                if version_dll.VerQueryValueW(buf, sub, ctypes.byref(ptr), ctypes.byref(length)) and ptr.value:
+                    parsed = parse_version(ctypes.wstring_at(ptr.value))
+                    if parsed and any(parsed):
+                        return parsed
+        return None
     except Exception as exc:
         log.debug("exe_file_version(%s) fallo: %s", path, exc)
         return None
@@ -136,9 +155,20 @@ class LocalObs:
 
 
 def detect_local_obs(exe_hint: str | None = None) -> LocalObs | None:
-    """Localiza el OBS de esta maquina: `exe_hint` (setting OBS_EXE_PATH) o
-    registro / rutas comunes via obs_launcher.find_obs_executable()."""
-    candidate = (exe_hint or "").strip() or obs_launcher.find_obs_executable()
+    """Localiza el OBS de esta maquina, en este orden:
+
+    1. `exe_hint` (setting OBS_EXE_PATH) si apunta a un archivo existente.
+    2. El obs64.exe que esta corriendo ahora (cubre el portable sin config).
+    3. Registro / Program Files (obs_launcher.find_obs_executable).
+    """
+    candidate = None
+    hint = (exe_hint or "").strip()
+    if hint and Path(hint).is_file():
+        candidate = hint
+    if not candidate:
+        candidate = obs_launcher.find_running_obs_executable()
+    if not candidate:
+        candidate = obs_launcher.find_obs_executable()
     if not candidate or not Path(candidate).is_file():
         return None
     exe = Path(candidate).resolve()

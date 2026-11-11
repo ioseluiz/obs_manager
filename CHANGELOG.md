@@ -28,6 +28,12 @@
 - Tests: `scripts/test_source_record_installer.py` (plan de instalación
   para las 4 combinaciones, copia, export, detección de portable, versión
   del exe, `has_source_record`) y `scripts/test_source_record_dialog_smoke.py`.
+- (rc.2) **Detección del OBS local por el proceso en ejecución**
+  (`obs_launcher.find_running_obs_executable`, API Win32): con un OBS
+  portable sin `OBS_EXE_PATH` configurado, el rc.1 dejaba "Instalar en
+  este OBS" deshabilitado sin explicación. Ahora `detect_local_obs` usa
+  primero la ruta del `obs64.exe` que está corriendo; y si aun así no se
+  encuentra, el botón pide elegir el archivo en vez de quedar gris.
 
 ### Corregido
 
