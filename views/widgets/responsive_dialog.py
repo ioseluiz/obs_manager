@@ -1,11 +1,16 @@
 """Keep existing dialog forms scrollable inside the available screen."""
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from views.widgets.wheel_guard import guard_wheel_in
+
 
 class ResponsiveDialog(QDialog):
     def showEvent(self, event):
         if not getattr(self, '_responsive_ready', False):
             self._responsive_ready = True
+            # Todo dialogo responsive queda protegido contra cambios de valor
+            # por rueda del mouse sin foco (spinboxes, combos, sliders).
+            guard_wheel_in(self)
             requested = self.size()
             original = self.layout()
             if original is not None:

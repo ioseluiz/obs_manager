@@ -1,3 +1,22 @@
+## [Unreleased] — v2.2.0
+
+### Corregido
+
+- **La rueda del mouse ya no cambia valores de controles sin foco**
+  (`views/widgets/wheel_guard.py`, nuevo). En Calendario de Cumpleaños,
+  hacer scroll con la rueda pasando sobre los spinboxes de las secciones
+  3, 4 y 5 (y el combo de la sección 2) cambiaba la calibración por
+  accidente: esos controles aplican el valor en vivo a OBS
+  (`_apply_live_calibration`) y lo persisten en `.env` al perder foco.
+  Ahora un `QSpinBox` / `QComboBox` / `QSlider` sin foco ignora la rueda
+  y la re-despacha al `QScrollArea`, de modo que la página se desplaza;
+  con foco (clic previo) la rueda funciona como siempre. Aplicado en
+  `CalendarView`, `CountdownView`, `SceneView` (sliders de "Ajuste en
+  vivo") y en todos los diálogos que heredan de `ResponsiveDialog`
+  (canal, escena, contadores, simulación, ítems de playlist). El fix
+  anterior en la rama `fix/calendar-controls-lock` nunca llegó a `main`.
+  Tests: `scripts/test_wheel_guard.py` (también en el step de CI).
+
 ## [2.1.0] - 2026-11-07
 
 - Reúne en una sola versión las mejoras de interfaz corporativa, logos, diseño adaptable, encabezados y simplificación de iconos posteriores a v2.0.0.
