@@ -1,4 +1,8 @@
-## [Unreleased]
+## [2.2.3] — 2026-11-12
+
+Instalar sobre v2.2.2 preserva DB, logs y `.env`. Trae el nivel B de la
+auto-actualización del Autopilot (el script Lua se recarga solo) y la
+selección múltiple de escenas al armar la playlist de un canal.
 
 ### Agregado — Recarga en caliente del Autopilot v2 (nivel B)
 
