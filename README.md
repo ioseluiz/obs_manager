@@ -179,8 +179,8 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 5. **Tests** (sin OBS; los de interfaz corren headless con `QT_QPA_PLATFORM=offscreen`). La lista exacta que corre el CI antes de cada release está en `.github/workflows/release.yml`; por ejemplo:
    ```powershell
    $env:QT_QPA_PLATFORM = "offscreen"
-   python scripts	est_canal_model.py
-   python scripts	est_autopilot_hot_reload.py
+   python scripts\test_canal_model.py
+   python scripts\test_autopilot_hot_reload.py
    ```
 
 ### ⚙ Configurar OBS WebSocket
