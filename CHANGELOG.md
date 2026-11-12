@@ -1,3 +1,24 @@
+## [Unreleased]
+
+### Agregado — Actualización automática del Autopilot v2 (nivel A)
+
+- `core/autopilot_installer.py`: localiza el `autopilot_v2.lua` registrado
+  en Herramientas → Scripts leyendo las colecciones de escenas de OBS
+  (`basic/scenes/*.json`, `modules.scripts-tool[].path`), compara la
+  versión embebida con la del Lua en ejecución (`script_version` del
+  buzón) y la del archivo en disco, y sobrescribe el archivo (con `.bak`).
+- Al conectar con un OBS **local** cuyo script es más viejo que el
+  embebido, la app actualiza el archivo sola (una vez por sesión) y avisa
+  que falta recargar scripts (Herramientas → Scripts → ↻) o reiniciar OBS.
+  La barra de estado muestra en naranja "⬆ vX disponible — recarga scripts
+  en OBS" mientras OBS siga ejecutando la versión vieja.
+- Ajustes → Autopilot v2: fila de versiones (embebida / en OBS / archivo
+  registrado) y botón "⬆ Actualizar el script en este OBS". OBS remoto:
+  sigue el flujo de exportar.
+- Lo que no puede hacer: pedirle a OBS que recargue scripts (obs-websocket
+  no lo expone); por eso queda un clic o un reinicio de OBS tras la primera
+  actualización. Tests: `scripts/test_autopilot_installer.py`.
+
 ## [2.2.1] — 2026-11-12
 
 Corrección urgente sobre v2.2.0 (videos en negro reportados por un cliente).

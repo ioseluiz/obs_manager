@@ -319,6 +319,9 @@ class MainController:
         # Arrancar refresh del label del Autopilot v2 en el status bar.
         self._refresh_autopilot_v2_status()
         self._autopilot_v2_status_timer.start()
+        # Si el Lua que corre en un OBS local es mas viejo que el embebido,
+        # actualizar el archivo registrado (OBS lo toma al recargar scripts).
+        self._maybe_update_autopilot_script()
 
     def _on_connection_lost(self, message):
         if self._manually_disconnected:
@@ -394,7 +397,72 @@ class MainController:
             log.debug("Refresh Autopilot v2 status fallo: %s", e)
             self.main_window.set_autopilot_v2_ui(None)
             return
-        self.main_window.set_autopilot_v2_ui(state)
+        hint = None
+        try:
+            from core.autopilot_installer import bundled_script_version, is_newer
+            bundled = bundled_script_version()
+            if state and is_newer(bundled, state.get("script_version")):
+                hint = f"⬆ v{bundled} disponible — recarga scripts en OBS"
+        except Exception as e:
+            log.debug("Chequeo de version del Autopilot fallo: %s", e)
+        self.main_window.set_autopilot_v2_ui(state, update_hint=hint)
+
+    # ------------------------------------------------------------------
+    # Autopilot v2: actualizacion automatica del .lua registrado en OBS
+    # ------------------------------------------------------------------
+
+    def _maybe_update_autopilot_script(self):
+        """Nivel A de la auto-actualizacion: si OBS corre en esta maquina y
+        el Lua en ejecucion es mas viejo que el embebido, sobrescribe el
+        archivo registrado en Herramientas -> Scripts (con .bak) y avisa
+        que hay que recargar scripts o reiniciar OBS. Una vez por sesion.
+        Nunca interrumpe el flujo de conexion."""
+        if getattr(self, "_autopilot_update_checked_this_session", False):
+            return
+        self._autopilot_update_checked_this_session = True
+        try:
+            from core.autopilot_installer import plan_update, update_registered_scripts
+            from core.source_record_installer import detect_local_obs
+            settings = self.settings_model.get_settings()
+            if not _is_local_host(settings.get("host", "")):
+                return
+            if not self.autopilot_v2_client.is_installed():
+                return
+            running = self.autopilot_v2_client.script_version()
+            local = detect_local_obs(settings.get("obs_exe_path"))
+            plan = plan_update(local, running)
+            if not plan.running_outdated:
+                return
+            log.info("Autopilot v2 en OBS: v%s; embebido: v%s", running, plan.bundled_version)
+            if not plan.registered:
+                self.main_window.statusBar().showMessage(
+                    f"Autopilot v{running} en OBS; la app trae v{plan.bundled_version}. "
+                    "No se encontró el .lua registrado — actualízalo desde Ajustes → Autopilot v2.",
+                    15000)
+                return
+            results = update_registered_scripts(plan.outdated_files)
+            changed = [r for r in results if r.ok and r.changed]
+            failed = [r for r in results if not r.ok]
+            lines = []
+            if changed:
+                lines.append("Se actualizó el script Autopilot v2 en disco "
+                             f"(v{running} → v{plan.bundled_version}):")
+                lines += [f"  • {r.path}" for r in changed]
+            elif plan.files_current_but_not_loaded:
+                lines.append(f"El archivo del Autopilot ya está en v{plan.bundled_version}, "
+                             f"pero OBS sigue ejecutando la v{running}.")
+            if failed:
+                lines.append("No se pudo actualizar:")
+                lines += [f"  • {r.path}: {r.message}" for r in failed]
+            if not lines:
+                return
+            lines.append("")
+            lines.append("Para que OBS use la versión nueva: Herramientas → Scripts → "
+                         "botón ↻ Recargar scripts, o reinicia OBS. Hasta entonces, con la "
+                         "app cerrada, los videos pueden verse en negro.")
+            QMessageBox.information(self.main_window, "Autopilot v2 actualizado", "\n".join(lines))
+        except Exception as e:
+            log.warning("Auto-actualización del Autopilot v2 falló: %s", e)
 
     def _sync_from_autopilot_v2(self):
         """Fase E del port de Autopilot v2.
@@ -691,8 +759,10 @@ class MainController:
         la verificacion si requiere conexion y el propio dialogo avisa
         si no la hay.
         """
+        settings = self.settings_model.get_settings()
         dialog = AutopilotInstallV2Dialog(
             self.autopilot_v2_client, parent=settings_dialog,
+            settings=settings, is_local=_is_local_host(settings.get("host", "")),
         )
         dialog.exec()
         # Refrescar el label de status bar por si el usuario acabo de
