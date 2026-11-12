@@ -85,7 +85,7 @@ def collect_canales_payload(canal_controller,
         except Exception as e:
             log.debug("canal %s: canal_model.get_items fallo: %s", canal_id, e)
             continue
-        item_to_name: dict[int, str] = {}
+        item_to_seq: dict[int, dict[str, Any]] = {}
         for row in items_rows:
             seq_id = row.get("secuencia_id")
             if seq_id is None:
@@ -96,20 +96,29 @@ def collect_canales_payload(canal_controller,
                 seq = None
             if seq is None:
                 continue
-            item_to_name[int(row["id"])] = seq.get("name", "") or ""
+            item_to_seq[int(row["id"])] = seq
+
+        from controllers.canal_controller import CanalController
 
         playlist: list[dict[str, Any]] = []
         for entry in state.playlist:
             scene_item_id = state.item_to_scene_item.get(entry.item_id, 0)
             if not scene_item_id:
                 continue
+            seq = item_to_seq.get(entry.item_id) or {}
+            # Videos: el Lua debe arrancarlos/pararlos explicitamente (OBS
+            # solo lo hace solo si la escena esta en Program). Campos
+            # opcionales del protocolo v2; un Lua anterior los ignora.
+            media_input = CanalController.media_input_for(seq) or ""
             playlist.append({
-                "name": item_to_name.get(entry.item_id, ""),
+                "name": seq.get("name", "") or "",
                 "scene_item_id": int(scene_item_id),
                 "duration_seg": int(entry.duration_seg),
                 "active_days": int(entry.active_days or 127),
                 "active_time_start": entry.time_start or "",
                 "active_time_end": entry.time_end or "",
+                "media_input": media_input,
+                "media_restart": bool(CanalController.media_restarts(seq)) if media_input else True,
             })
 
         # Handoff: active_index 1-based + seconds_remaining en segundos.

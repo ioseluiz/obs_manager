@@ -170,8 +170,74 @@ def test_rotacion_consecutiva_para_refresh_previo():
            "al cambiar a video, refresh de URL se para y active_input_name = None")
 
 
+def test_video_restart_on_show_y_stop_on_hide():
+    print("[Video: mostrar → RESTART, ocultar → STOP (no depende del Program)]")
+    _ensure_qapp()
+    cc, state, obs, _ = _build_state_and_controller()
+    state.item_to_seq[11]["contenido"] = "C:/videos/VideoB.mp4"
+    obs.media_action.reset_mock()
+    cc._show_item(state, 11)
+    obs.media_action.assert_any_call("VideoB_Contenido", "RESTART")
+    _check(True, "media_action('VideoB_Contenido', 'RESTART') al mostrar")
+    state.active_index = 1
+    obs.media_action.reset_mock()
+    cc._hide_current(state)
+    obs.media_action.assert_called_once_with("VideoB_Contenido", "STOP")
+    _check(True, "media_action('VideoB_Contenido', 'STOP') al ocultar")
+
+
+def test_video_sin_restart_on_activate_usa_play_pause():
+    print("[Video con 'reiniciar al entrar' apagado: PLAY / PAUSE]")
+    _ensure_qapp()
+    cc, state, obs, _ = _build_state_and_controller()
+    state.item_to_seq[11].update({"contenido": "C:/videos/VideoB.mp4",
+                                  "video_restart_on_activate": 0})
+    obs.media_action.reset_mock()
+    cc._show_item(state, 11)
+    obs.media_action.assert_any_call("VideoB_Contenido", "PLAY")
+    _check(True, "PLAY al mostrar (continua donde iba)")
+    state.active_index = 1
+    obs.media_action.reset_mock()
+    cc._hide_current(state)
+    obs.media_action.assert_called_once_with("VideoB_Contenido", "PAUSE")
+    _check(True, "PAUSE al ocultar")
+
+
+def test_imagen_y_url_no_envian_media_action():
+    print("[Imagen y URL: sin acciones de media]")
+    _ensure_qapp()
+    cc, state, obs, _ = _build_state_and_controller()
+    state.item_to_seq[13]["contenido"] = "C:/img/StaticImage.png"
+    obs.media_action.reset_mock()
+    cc._show_item(state, 13)  # imagen
+    cc._show_item(state, 10)  # url
+    _check(not obs.media_action.called, "media_action NO llamado para imagen ni URL")
+    from controllers.canal_controller import CanalController
+    _check(CanalController.media_input_for({"name": "V", "tipo": "file"}) == "V_Contenido",
+           "file sin 'contenido' se asume video")
+    _check(CanalController.media_input_for({"name": "I", "tipo": "file", "contenido": "a.JPG"}) is None,
+           "file con imagen → None")
+    _check(CanalController.media_input_for({"name": "U", "tipo": "url"}) is None, "url → None")
+
+
+def test_hide_all_para_todos_los_videos():
+    print("[_hide_all_items para todos los videos de la playlist]")
+    _ensure_qapp()
+    cc, state, obs, _ = _build_state_and_controller()
+    state.item_to_seq[11]["contenido"] = "C:/videos/VideoB.mp4"
+    obs.media_action.reset_mock()
+    cc._hide_all_items(state)
+    calls = [c.args for c in obs.media_action.call_args_list]
+    _check(("VideoB_Contenido", "STOP") in calls, "STOP enviado al video al parar el rotador")
+    _check(all(a[0] != "DashA_Web" for a in calls), "la URL no recibe acciones de media")
+
+
 def main():
     print("=== CanalController show-hooks smoke tests ===")
+    test_video_restart_on_show_y_stop_on_hide()
+    test_video_sin_restart_on_activate_usa_play_pause()
+    test_imagen_y_url_no_envian_media_action()
+    test_hide_all_para_todos_los_videos()
     test_f1_url_refresh_armado()
     test_f1_url_sin_interval_no_arma()
     test_f1_hide_para_refresh()

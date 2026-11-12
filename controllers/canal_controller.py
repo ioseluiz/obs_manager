@@ -26,6 +26,7 @@ from typing import Any, Callable
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from core.output_adapter import OutputAdapter, FILTER_NAME
+from models.obs_client import is_image_file
 from views.schedule_widget import is_scene_active_now
 
 log = logging.getLogger(__name__)
@@ -591,11 +592,13 @@ class CanalController(QObject):
             scene_item = state.item_to_scene_item.get(item_id)
             if scene_item is not None:
                 self._set_scene_item(state, scene_item, False)
+            self._media_on_hide(state.item_to_seq.get(item_id))
 
     def _hide_all_items(self, state: _RotatorState) -> None:
         """Oculta todos los scene items del canal (no el placeholder)."""
-        for si_id in state.item_to_scene_item.values():
+        for item_id, si_id in state.item_to_scene_item.items():
             self._set_scene_item(state, si_id, False)
+            self._media_on_hide(state.item_to_seq.get(item_id))
 
     def _show_item(self, state: _RotatorState, item_id: int) -> None:
         scene_item = state.item_to_scene_item.get(item_id)
@@ -609,7 +612,68 @@ class CanalController(QObject):
         # video offset, calendar move_circle_to_today.
         seq = state.item_to_seq.get(item_id)
         if seq:
+            self._media_on_show(seq)
             self._apply_show_hooks(state, seq)
+
+    # ------------------------------------------------------------------
+    # Videos: arranque/parada explicitos (no depender del Program de OBS)
+    # ------------------------------------------------------------------
+    #
+    # OBS solo arranca un media source por si mismo cuando esta "activo",
+    # es decir, cuando su escena esta en Program. La escena contenedora
+    # de un canal normalmente NO esta en Program (el operador puede tener
+    # Modo Estudio u otra escena seleccionada), asi que encender el scene
+    # item no basta: el video se queda STOPPED/ENDED y se ve negro —
+    # mientras imagenes y paginas web si se dibujan. Reproducido con OBS
+    # 32 y reportado en produccion (2026-11-12). Por eso al mostrar un
+    # video ordenamos RESTART (o PLAY si la secuencia no quiere reiniciar
+    # al entrar) y al ocultarlo STOP (o PAUSE), replicando lo que OBS
+    # haria con activate/deactivate si la escena estuviera en Program.
+
+    @staticmethod
+    def media_input_for(seq: dict[str, Any] | None) -> str | None:
+        """Nombre del media source de una secuencia de video, o None si la
+        secuencia no es un video de archivo (URL, imagen, sin nombre)."""
+        if not seq:
+            return None
+        if (seq.get("tipo") or "").lower() != "file":
+            return None
+        name = seq.get("name") or ""
+        if not name:
+            return None
+        contenido = seq.get("contenido") or seq.get("content") or ""
+        if contenido and is_image_file(contenido):
+            return None
+        return f"{name}_Contenido"
+
+    @staticmethod
+    def media_restarts(seq: dict[str, Any]) -> bool:
+        value = seq.get("video_restart_on_activate", 1)
+        return bool(1 if value is None else value)
+
+    def _media_on_show(self, seq: dict[str, Any]) -> None:
+        input_name = self.media_input_for(seq)
+        if not input_name:
+            return
+        action = "RESTART" if self.media_restarts(seq) else "PLAY"
+        try:
+            ok, msg = self.obs_client.media_action(input_name, action)
+            if not ok:
+                log.debug("media %s %s: %s", action, input_name, msg)
+        except Exception as e:
+            log.debug("media %s %s fallo: %s", action, input_name, e)
+
+    def _media_on_hide(self, seq: dict[str, Any] | None) -> None:
+        input_name = self.media_input_for(seq)
+        if not input_name:
+            return
+        action = "STOP" if self.media_restarts(seq) else "PAUSE"
+        try:
+            ok, msg = self.obs_client.media_action(input_name, action)
+            if not ok:
+                log.debug("media %s %s: %s", action, input_name, msg)
+        except Exception as e:
+            log.debug("media %s %s fallo: %s", action, input_name, e)
 
     # ------------------------------------------------------------------
     # Fase 1.F1/F2/F3: hooks al mostrar un item nuevo

@@ -323,6 +323,32 @@ class OBSClient:
         except Exception as e:
             return False, f"Error moviendo cursor: {str(e)}"
 
+    MEDIA_ACTIONS = ("PLAY", "PAUSE", "STOP", "RESTART", "NEXT", "PREVIOUS")
+
+    def media_action(self, input_name, action):
+        """TriggerMediaInputAction sobre un media source (ffmpeg_source).
+
+        `action`: PLAY | PAUSE | STOP | RESTART | NEXT | PREVIOUS.
+
+        Necesario porque OBS solo arranca un media source por si mismo
+        cuando esta "activo" (= en Program). En el modelo multi-canal los
+        videos viven en escenas contenedoras que normalmente NO estan en
+        Program, asi que al mostrarlos hay que ordenar el arranque de
+        forma explicita; si no, quedan en negro.
+        """
+        if not self.client:
+            return False, "OBS no está conectado."
+        action = str(action).upper()
+        if action not in self.MEDIA_ACTIONS:
+            return False, f"Acción de media desconocida: {action}"
+        try:
+            self.client.trigger_media_input_action(
+                input_name, f"OBS_WEBSOCKET_MEDIA_INPUT_ACTION_{action}")
+            return True, f"{action} enviado a {input_name}."
+        except Exception as e:
+            log.debug("media_action %s %s falló: %s", action, input_name, e)
+            return False, f"Error en {action} de {input_name}: {e}"
+
     def get_video_duration_ms(self, input_name):
         if not self.client:
             return None
