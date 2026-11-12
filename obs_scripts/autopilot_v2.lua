@@ -26,6 +26,13 @@
 -- lo re-habilita si lo encuentra off (defensa contra apagados
 -- accidentales mientras la app no esta).
 --
+-- Videos (v2.1.0): OBS solo arranca un media source cuando esta
+-- "activo" (= su escena en Program). Como la escena contenedora de un
+-- canal normalmente no esta en Program, al mostrar un item de video el
+-- script ordena obs_source_media_restart (o play) y al ocultarlo
+-- obs_source_media_stop (o pause). La app indica por item `media_input`
+-- (nombre del media source) y `media_restart` (reiniciar al entrar).
+--
 -- Protocolo JSON detallado: obs_scripts/PROTOCOL_v2.md
 --
 -- Contenido elaborado con apoyo de IA (TD-NCI-013 num. 5.2)
@@ -36,7 +43,7 @@ local obs = obslua
 -- Constantes
 -- ==========================================================================
 
-local SCRIPT_VERSION = "2.0.0"
+local SCRIPT_VERSION = "2.1.0"
 local PROTOCOL_VERSION = 2
 local CONFIG_SOURCE = "__autopilot_config_v2__"
 local STATE_SOURCE = "__autopilot_state_v2__"
@@ -203,6 +210,35 @@ local function activate_scene(scene_name)
     return true
 end
 
+-- Arranca o para el media source de un item de video (si lo tiene).
+-- `showing` true → restart (o play si no reinicia al entrar);
+-- false → stop (o pause). Sin media_input no hace nada (imagen / URL).
+local function drive_media(item, showing)
+    local name = item.media_input
+    if name == nil or name == "" then return end
+    local source = obs.obs_get_source_by_name(name)
+    if source == nil then
+        log_warn("media source no existe: " .. name)
+        return
+    end
+    local restart = item.media_restart
+    if restart == nil then restart = true end
+    if showing then
+        if restart then
+            obs.obs_source_media_restart(source)
+        else
+            obs.obs_source_media_play_pause(source, false)
+        end
+    else
+        if restart then
+            obs.obs_source_media_stop(source)
+        else
+            obs.obs_source_media_play_pause(source, true)
+        end
+    end
+    obs.obs_source_release(source)
+end
+
 -- Modo scene_items: dentro de `scene_name`, muestra solo el scene item
 -- con id = target_item_id y oculta el resto de ids listados en la
 -- playlist del canal. Deja intactos los scene items que no esten en la
@@ -230,6 +266,8 @@ local function activate_scene_item(scene_name, playlist, target_item_id)
                 obs.obs_sceneitem_set_visible(sceneitem, visible)
                 toggled = toggled + 1
             end
+            -- Videos: arranque/parada explicitos (ver cabecera del script).
+            drive_media(item, item_id == target_item_id)
         end
     end
     obs.obs_source_release(parent_source)
@@ -364,7 +402,13 @@ end
 -- ==========================================================================
 
 -- Parsea un item de playlist. Modo scene_items incluye scene_item_id.
+-- media_input / media_restart (v2.1.0) son opcionales: sin media_input el
+-- item no es un video y no se le envian acciones de media.
 local function parse_item(item)
+    local media_restart = true
+    if obs.obs_data_has_user_value(item, "media_restart") then
+        media_restart = obs.obs_data_get_bool(item, "media_restart")
+    end
     return {
         name = obs.obs_data_get_string(item, "name") or "",
         scene_item_id = obs.obs_data_get_int(item, "scene_item_id"),
@@ -372,6 +416,8 @@ local function parse_item(item)
         active_days = obs.obs_data_get_int(item, "active_days"),
         active_time_start = obs.obs_data_get_string(item, "active_time_start"),
         active_time_end = obs.obs_data_get_string(item, "active_time_end"),
+        media_input = obs.obs_data_get_string(item, "media_input") or "",
+        media_restart = media_restart,
     }
 end
 

@@ -117,8 +117,11 @@ def test_collect_happy_path_2_canales():
             {"id": 21, "secuencia_id": 201}],
     }.get(cid, [])
     cc.scene_model.get_scene.side_effect = lambda sid: {
-        100: {"name": "Esc A1"}, 101: {"name": "Esc A2"},
-        200: {"name": "Esc B1"}, 201: {"name": "Esc B2"},
+        100: {"name": "Esc A1", "tipo": "file", "contenido": "C:/img/a1.png"},
+        101: {"name": "Esc A2", "tipo": "file", "contenido": "C:/v/a2.mp4",
+              "video_restart_on_activate": False},
+        200: {"name": "Esc B1", "tipo": "url", "contenido": "https://x"},
+        201: {"name": "Esc B2", "tipo": "file", "contenido": "C:/v/b2.mp4"},
     }.get(sid)
 
     cc.set_status(1, active_index=1, remaining_ms=12000)
@@ -137,12 +140,23 @@ def test_collect_happy_path_2_canales():
     _check(c1["playlist"][0]["name"] == "Esc A1", "canal 1 item 0 name")
     _check(c1["playlist"][0]["scene_item_id"] == 100, "canal 1 item 0 scene_item_id")
     _check(c1["playlist"][0]["duration_seg"] == 20, "canal 1 item 0 duration_seg")
+    # Videos: media_input / media_restart para que el Lua arranque y pare
+    # el media source sin depender del Program de OBS.
+    _check(c1["playlist"][0]["media_input"] == "", "imagen → media_input vacio")
+    _check(c1["playlist"][1]["media_input"] == "Esc A2_Contenido",
+           "video → media_input '<secuencia>_Contenido'")
+    _check(c1["playlist"][1]["media_restart"] is False,
+           "video con restart_on_activate=False → media_restart False")
+    c2 = by_id[2]
+    _check(c2["playlist"][0]["media_input"] == "", "url → media_input vacio")
+    _check(c2["playlist"][1]["media_input"] == "Esc B2_Contenido"
+           and c2["playlist"][1]["media_restart"] is True,
+           "video sin flag → media_restart True por defecto")
     _check(c1["handoff"]["active_index"] == 2,
            "canal 1 handoff active_index 1-based (1->2)")
     _check(c1["handoff"]["seconds_remaining"] == 12,
            "canal 1 handoff seconds_remaining = 12 (12000ms)")
 
-    c2 = by_id[2]
     _check(c2["handoff"]["active_index"] == 1,
            "canal 2 handoff active_index 1-based (0->1)")
     _check(c2["handoff"]["seconds_remaining"] == 5,

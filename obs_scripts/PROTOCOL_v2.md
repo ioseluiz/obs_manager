@@ -166,6 +166,18 @@ Items a rotar. Cada item:
 - `active_time_end` (string "HH:MM" o ""): fin de ventana horaria. Si
   `start > end`, la ventana cruza medianoche (`22:00` → `02:00`). Si
   ambos son `""` → siempre activa (con día ok).
+- `media_input` (string, opcional, desde script 2.1.0): nombre del media
+  source (`ffmpeg_source`) del item cuando es un **video de archivo**
+  (convención de la app: `"<secuencia>_Contenido"`). Vacío o ausente para
+  imágenes y URLs. OBS solo arranca un media source por sí mismo cuando
+  su escena está en Program; como la escena contenedora normalmente no lo
+  está, el script, al mostrar el item, llama `obs_source_media_restart`
+  (o `play` si `media_restart=false`) y al ocultarlo
+  `obs_source_media_stop` (o `pause`). La app hace lo mismo vía
+  `TriggerMediaInputAction` mientras tiene el control.
+- `media_restart` (bool, opcional, default `true`): `true` = el video
+  reinicia desde el principio cada vez que se muestra; `false` = continúa
+  donde quedó (play/pause).
 
 **`handoff`** (objeto, opcional)
 Presente sólo cuando la app está entregando control de este canal

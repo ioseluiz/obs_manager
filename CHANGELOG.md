@@ -1,3 +1,27 @@
+## [Unreleased]
+
+### Corregido
+
+- **Videos en negro cuando la escena del canal no está en Program**
+  (`controllers/canal_controller.py`, `models/obs_client.py`,
+  `obs_scripts/autopilot_v2.lua` 2.1.0). OBS solo arranca un media source
+  por sí mismo cuando está "activo", es decir, cuando su escena está en
+  Program; la escena contenedora de un canal normalmente no lo está (el
+  operador puede tener Modo Estudio u otra escena seleccionada), así que
+  al encender el item el video quedaba en STOPPED/ENDED y se veía negro
+  con audio en -inf, mientras imágenes y páginas web sí se dibujaban.
+  Reproducido con OBS 32 y reportado por un cliente. Ahora, al mostrar
+  un item de video, la app ordena `RESTART` (o `PLAY` si la secuencia no
+  reinicia al entrar) y al ocultarlo `STOP` (o `PAUSE`)
+  (`OBSClient.media_action` → `TriggerMediaInputAction`). El script Lua
+  hace lo mismo (`obs_source_media_restart/stop`) con dos campos nuevos y
+  opcionales por item del protocolo v2, `media_input` y `media_restart`;
+  un Lua anterior los ignora. **Para que el fix aplique con la app
+  cerrada hay que re-exportar e instalar el `autopilot_v2.lua` 2.1.0**
+  (Ajustes → Autopilot v2). Tests: 4 nuevos en
+  `scripts/test_canal_show_hooks.py` y payload en
+  `scripts/test_autopilot_v2_controller.py`.
+
 ## [2.2.0] — 2026-11-12
 
 Lote de fixes y mejoras sobre v2.1.0, validado en dos prereleases

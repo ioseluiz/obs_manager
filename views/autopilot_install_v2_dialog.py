@@ -77,7 +77,7 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
             "<li>Clic en <b>+</b> y selecciona el <code>autopilot_v2.lua</code> "
             "que acabas de exportar.</li>"
             "<li>El log de OBS mostrará "
-            "<code>[autopilot_v2] cargando v2.0.0</code> seguido de "
+            "<code>[autopilot_v2] cargando v2.1.0</code> seguido de "
             "<code>timers armados; a la espera de config v2 de la app</code>."
             "</li>"
             "<li>Vuelve aquí y pulsa <b>Verificar instalación</b>.</li>"
