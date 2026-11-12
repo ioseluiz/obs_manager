@@ -1,3 +1,27 @@
+## [Unreleased]
+
+### Agregado — Recarga en caliente del Autopilot v2 (nivel B)
+
+- `obs_scripts/autopilot_v2.lua` **2.2.0**: el script vigila su propio
+  archivo (ruta vía `debug.getinfo`, versión leída cada 10 s) y, cuando la
+  app lo sobrescribe con otra versión, se descarga a sí mismo, ejecuta el
+  archivo nuevo en el mismo estado Lua y arranca la versión nueva. Ya no
+  hay que pulsar ↻ Recargar scripts ni reiniciar OBS. Si el archivo nuevo
+  no compila o falla al cargar, restaura la versión en ejecución y
+  reintenta al minuto; todo queda en el log de OBS.
+- `core/autopilot_installer.py`: la actualización del archivo registrado
+  es atómica (copia temporal + `os.replace`) para que el Lua nunca lea una
+  copia a medias; `supports_hot_reload()` / `UpdatePlan.running_hot_reloads`.
+- App: con un Lua ≥ 2.2.0 en ejecución, la auto-actualización al conectar
+  y el botón de Ajustes solo informan "OBS lo recarga solo en unos
+  segundos"; con uno anterior siguen pidiendo la recarga manual (una sola
+  vez). El diálogo de instalación muestra la versión embebida real.
+- Tests: `scripts/test_autopilot_hot_reload.py` ejecuta el Lua real con
+  LuaJIT (`lupa`, nueva `requirements-dev.txt`) y un `obslua` falso:
+  recarga exitosa, archivo que no compila (sigue la versión vieja, con
+  cooldown) y archivo que falla al ejecutar (se restaura). Documentado en
+  `PROTOCOL_v2.md` y README.
+
 ## [2.2.2] — 2026-11-12
 
 Instalar sobre v2.2.1 preserva DB, logs y `.env`.

@@ -33,6 +33,15 @@
 -- obs_source_media_stop (o pause). La app indica por item `media_input`
 -- (nombre del media source) y `media_restart` (reiniciar al entrar).
 --
+-- Recarga en caliente (v2.2.0): la app sobrescribe este archivo cuando
+-- trae una version mas nueva (Ajustes -> Autopilot v2, o sola al conectar
+-- con un OBS local). El script mira su propio archivo cada
+-- RELOAD_CHECK_SEC segundos y, si la version declarada en disco ya no es
+-- la que corre, se descarga y ejecuta el archivo nuevo en este mismo
+-- estado Lua — sin pulsar "Recargar scripts" ni reiniciar OBS. Si el
+-- archivo nuevo no compila o falla al cargar, restaura la version en
+-- ejecucion y reintenta mas tarde.
+--
 -- Protocolo JSON detallado: obs_scripts/PROTOCOL_v2.md
 --
 -- Contenido elaborado con apoyo de IA (TD-NCI-013 num. 5.2)
@@ -43,7 +52,7 @@ local obs = obslua
 -- Constantes
 -- ==========================================================================
 
-local SCRIPT_VERSION = "2.1.0"
+local SCRIPT_VERSION = "2.2.0"
 local PROTOCOL_VERSION = 2
 local CONFIG_SOURCE = "__autopilot_config_v2__"
 local STATE_SOURCE = "__autopilot_state_v2__"
@@ -62,6 +71,11 @@ local HEARTBEAT_TIMEOUT_SEC = 30
 -- Cuando ningun item esta en su ventana horaria, esperar este intervalo
 -- antes de volver a chequear.
 local RETRY_WHEN_NO_ACTIVE_SEC = 60
+
+-- Recarga en caliente: cada cuantos segundos mirar el archivo propio, y
+-- cuanto esperar antes de reintentar tras un fallo de carga.
+local RELOAD_CHECK_SEC = 10
+local RELOAD_RETRY_SEC = 60
 
 -- ==========================================================================
 -- Estado interno
@@ -92,6 +106,31 @@ local tick_count = 0
 -- porque no estan en ninguna scene). Se liberan en script_unload.
 local config_source_ref = nil
 local state_source_ref = nil
+
+-- Ruta de este archivo, para la recarga en caliente. OBS carga el script
+-- con luaL_loadfile, asi que debug.getinfo reporta la fuente como
+-- "@<ruta>". Fallback: script_path() (directorio) + nombre canonico.
+local script_file = (function()
+    local src = ""
+    if debug ~= nil and debug.getinfo ~= nil then
+        local info = debug.getinfo(1, "S")
+        src = (info and info.source) or ""
+    end
+    if string.sub(src, 1, 1) == "@" then
+        return string.sub(src, 2)
+    end
+    if type(script_path) == "function" then
+        return script_path() .. "autopilot_v2.lua"
+    end
+    return nil
+end)()
+
+-- obs_data_t de settings que OBS entrega en script_load; se reutiliza al
+-- arrancar la version nueva tras una recarga en caliente.
+local saved_settings = nil
+local reload_tick = 0
+local reload_failed_version = nil
+local reload_failed_at = 0
 
 -- ==========================================================================
 -- Utilidades
@@ -566,11 +605,91 @@ local function ingest_config()
 end
 
 -- ==========================================================================
+-- Recarga en caliente
+-- ==========================================================================
+
+-- Lee la version declarada en el archivo sin ejecutarlo.
+local function read_file_version(path)
+    local f = io.open(path, "rb")
+    if f == nil then return nil end
+    local head = f:read(16384)
+    f:close()
+    if head == nil then return nil end
+    return string.match(head, 'local%s+SCRIPT_VERSION%s*=%s*"([%d%.]+)"')
+end
+
+-- Reemplaza esta version por la del archivo. Devuelve true si la nueva
+-- quedo corriendo; false si se restauro la actual.
+local function hot_reload(path, file_version)
+    local chunk, err = loadfile(path)
+    if chunk == nil then
+        log_warn("recarga en caliente: " .. path .. " no compila (" ..
+                 tostring(err) .. "); sigo con v" .. SCRIPT_VERSION)
+        return false
+    end
+    local old_load, old_unload = script_load, script_unload
+    local settings = saved_settings
+    log_info("recarga en caliente: v" .. SCRIPT_VERSION .. " -> v" ..
+             file_version .. " desde " .. path)
+    -- 1) Apagar esta version: timers y refs a los buzones.
+    old_unload()
+    -- 2) Ejecutar el archivo nuevo en este mismo estado Lua: redefine los
+    --    callbacks globales (script_load, script_unload, ...).
+    local ok, run_err = pcall(chunk)
+    if not ok or type(script_load) ~= "function" or
+       type(script_unload) ~= "function" then
+        log_warn("recarga en caliente: el archivo nuevo fallo al ejecutar (" ..
+                 tostring(run_err) .. "); restaurando v" .. SCRIPT_VERSION)
+        script_load, script_unload = old_load, old_unload
+        old_load(settings)
+        return false
+    end
+    -- 3) Arrancar la version nueva.
+    local ok2, load_err = pcall(script_load, settings)
+    if not ok2 then
+        log_warn("recarga en caliente: script_load de v" .. file_version ..
+                 " fallo (" .. tostring(load_err) .. "); restaurando v" ..
+                 SCRIPT_VERSION)
+        pcall(script_unload)
+        script_load, script_unload = old_load, old_unload
+        old_load(settings)
+        return false
+    end
+    return true
+end
+
+-- Devuelve true si esta version acaba de ser reemplazada: el llamador no
+-- debe tocar mas estado propio despues.
+local function check_hot_reload()
+    if script_file == nil then return false end
+    local fv = read_file_version(script_file)
+    if fv == nil or fv == SCRIPT_VERSION then return false end
+    if fv == reload_failed_version and
+       (os.time() - reload_failed_at) < RELOAD_RETRY_SEC then
+        return false
+    end
+    if hot_reload(script_file, fv) then
+        return true
+    end
+    reload_failed_version = fv
+    reload_failed_at = os.time()
+    return false
+end
+
+-- ==========================================================================
 -- Ticks
 -- ==========================================================================
 
 local function tick_config()
     ingest_config()
+    -- Recarga en caliente: mirar el archivo propio cada RELOAD_CHECK_SEC.
+    reload_tick = reload_tick + 1
+    if reload_tick * TICK_CONFIG_MS >= RELOAD_CHECK_SEC * 1000 then
+        reload_tick = 0
+        if check_hot_reload() then
+            return  -- esta version ya fue descargada; no tocar nada mas
+        end
+    end
 end
 
 local function tick_rotation()
@@ -629,11 +748,15 @@ function script_description()
     "Estado: text source oculto <b>" .. STATE_SOURCE .. "</b><br><br>" ..
     "Convive con el Autopilot v1 (<i>autopilot.lua</i>) si esta " ..
     "instalado — cada version usa sus propios buzones.<br><br>" ..
+    "Se actualiza solo: cuando la app sobrescribe este archivo con una " ..
+    "version mas nueva, el script la carga en caliente en unos segundos " ..
+    "(sin Recargar scripts ni reiniciar OBS).<br><br>" ..
     "No requiere configuracion manual — la app cliente se encarga."
 end
 
 function script_load(settings)
-    log_info("cargando v" .. SCRIPT_VERSION)
+    log_info("cargando v" .. SCRIPT_VERSION .. " desde " .. tostring(script_file))
+    saved_settings = settings
     -- Reset defensivo: si el script esta siendo recargado, remover
     -- timers zombi del load anterior antes de registrar los nuevos.
     -- Sin esto, despues de varios reloads podrIamos tener multiples
@@ -654,7 +777,8 @@ function script_load(settings)
     -- Registrar timers frescos.
     obs.timer_add(tick_config, TICK_CONFIG_MS)
     obs.timer_add(tick_rotation, TICK_ROTATION_MS)
-    log_info("timers armados; a la espera de config v2 de la app")
+    log_info("timers armados; a la espera de config v2 de la app " ..
+             "(recarga en caliente cada " .. RELOAD_CHECK_SEC .. " s)")
 end
 
 function script_unload()

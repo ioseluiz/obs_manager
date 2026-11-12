@@ -322,6 +322,33 @@ canal por `canal_id` y sincroniza su `_RotatorState` local:
 `active_index` + `seconds_remaining` desde el estado publicado. El
 primer heartbeat devuelve el script a `standby`.
 
+## Recarga en caliente del script (2.2.0+)
+
+No es parte del JSON, pero sí del contrato entre app y script:
+
+- La app actualiza el archivo registrado en Herramientas → Scripts
+  sobrescribiéndolo de forma **atómica** (copia temporal + `os.replace`),
+  sin tocar la colección de escenas ni la lista de scripts de OBS.
+- El script resuelve su propia ruta con `debug.getinfo(1, "S").source`
+  (OBS lo carga con `luaL_loadfile`, así que la fuente es `@<ruta>`) y
+  cada 10 s lee los primeros 16 KB del archivo buscando
+  `local SCRIPT_VERSION = "x.y.z"`. Si la versión en disco difiere de la
+  que corre (más nueva **o** más vieja: el archivo manda, igual que el
+  botón ↻ de OBS), ejecuta `script_unload()` propio, `loadfile` + ejecución
+  del archivo nuevo en el mismo estado Lua (redefine `script_load`,
+  `script_unload`, `script_description`) y llama al `script_load` nuevo
+  con el mismo `settings`.
+- Tras la recarga el estado interno arranca de cero: el script relee el
+  buzón de config (`last_config_version` vuelve a 0, así que la config
+  vigente se ingiere de nuevo) y la rotación de cada canal empieza desde
+  el primer item en ventana. `script_version` en el buzón de estado
+  cambia en el siguiente tick (≤ 1 s).
+- Si el archivo nuevo no compila, sigue la versión en ejecución y se
+  reintenta al minuto. Si compila pero falla al ejecutar o en su
+  `script_load`, se restauran los callbacks anteriores y se vuelve a
+  llamar al `script_load` viejo (timers y buzones recuperados).
+- Editar el archivo sin cambiar `SCRIPT_VERSION` no dispara nada.
+
 ## Reglas de compatibilidad
 
 - El script debe tolerar JSON con campos que no reconoce (ignorarlos).

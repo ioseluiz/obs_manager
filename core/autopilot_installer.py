@@ -37,6 +37,19 @@ log = logging.getLogger(__name__)
 _VERSION_RE = re.compile(r'^\s*local\s+SCRIPT_VERSION\s*=\s*"([^"]+)"', re.MULTILINE)
 
 
+# Desde esta version el Lua vigila su propio archivo y se recarga solo
+# cuando la app lo sobrescribe (nivel B). Con una version anterior en
+# ejecucion hay que pulsar "Recargar scripts" o reiniciar OBS una vez.
+HOT_RELOAD_MIN_VERSION = "2.2.0"
+
+
+def supports_hot_reload(version: str | None) -> bool:
+    """True si esa version del Lua en ejecucion se recarga sola al cambiar
+    el archivo en disco (>= HOT_RELOAD_MIN_VERSION)."""
+    v = parse_version(version)
+    return v is not None and v >= parse_version(HOT_RELOAD_MIN_VERSION)
+
+
 def read_script_version(path: Path | str) -> str | None:
     """Version declarada en un autopilot_v2.lua (`local SCRIPT_VERSION = "x.y.z"`)."""
     try:
@@ -150,7 +163,11 @@ def update_registered_scripts(targets: list[RegisteredScript],
             t.path.parent.mkdir(parents=True, exist_ok=True)
             if t.exists:
                 shutil.copy2(t.path, t.path.with_suffix(t.path.suffix + ".bak"))
-            shutil.copy2(source, t.path)
+            # Escritura atomica: el Lua en ejecucion vigila este archivo y
+            # nunca debe leer una copia a medias.
+            tmp = t.path.with_name(t.path.name + ".tmp")
+            shutil.copy2(source, tmp)
+            os.replace(tmp, t.path)
             results.append(UpdateResult(t.path, True, True,
                                         f"Actualizado a v{read_script_version(source) or '?'} (respaldo .bak)."))
             log.info("autopilot_v2.lua actualizado en %s", t.path)
@@ -168,6 +185,11 @@ class UpdatePlan:
     @property
     def running_outdated(self) -> bool:
         return is_newer(self.bundled_version, self.running_version)
+
+    @property
+    def running_hot_reloads(self) -> bool:
+        """El Lua en ejecucion tomara solo el archivo nuevo (sin recargar)."""
+        return supports_hot_reload(self.running_version)
 
     @property
     def outdated_files(self) -> list[RegisteredScript]:

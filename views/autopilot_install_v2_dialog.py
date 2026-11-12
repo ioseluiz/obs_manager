@@ -83,6 +83,7 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         # Instrucciones de registro
         instr = QTextEdit()
         instr.setReadOnly(True)
+        bundled_v = api.bundled_script_version() or "?"
         instr.setHtml(
             "<ol>"
             "<li><b>Exporta</b> el script a un lugar accesible desde la "
@@ -91,11 +92,15 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
             "<li>Clic en <b>+</b> y selecciona el <code>autopilot_v2.lua</code> "
             "que acabas de exportar.</li>"
             "<li>El log de OBS mostrará "
-            "<code>[autopilot_v2] cargando v2.1.0</code> seguido de "
+            f"<code>[autopilot_v2] cargando v{bundled_v}</code> seguido de "
             "<code>timers armados; a la espera de config v2 de la app</code>."
             "</li>"
             "<li>Vuelve aquí y pulsa <b>Verificar instalación</b>.</li>"
             "</ol>"
+            "<p style='color:#6C757D;'>Desde la versión "
+            f"{api.HOT_RELOAD_MIN_VERSION} el script se recarga solo cuando la app "
+            "sobrescribe el archivo: las siguientes actualizaciones no requieren "
+            "tocar OBS.</p>"
             "<p style='color:#6C757D;'>Nota: si tienes el Autopilot v1 "
             "(<code>autopilot.lua</code>) instalado, puede quedarse — v2 "
             "usa sus propios buzones y no interfieren.</p>"
@@ -161,6 +166,8 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         self.btn_update_local.setEnabled(can_update)
         if can_update and plan.running_outdated and not plan.outdated_files:
             self.btn_update_local.setToolTip(
+                "El archivo ya tiene la versión embebida; OBS la cargará sola en unos segundos."
+                if plan.running_hot_reloads else
                 "El archivo ya tiene la versión embebida; OBS la usará al recargar scripts o reiniciar.")
 
     def _on_update_local(self):
@@ -182,8 +189,13 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         if failed:
             lines.append("No se pudo actualizar:")
             lines += [f"  • {r.path}: {r.message}" for r in failed]
-        lines += ["", "Para que OBS use la versión nueva: Herramientas → Scripts → ↻ Recargar "
-                      "scripts, o reinicia OBS. Luego pulsa Verificar instalación."]
+        if plan.running_hot_reloads:
+            lines += ["", "OBS recargará el script por sí solo en unos segundos. "
+                          "Luego pulsa Verificar instalación."]
+        else:
+            lines += ["", "Para que OBS use la versión nueva: Herramientas → Scripts → ↻ Recargar "
+                          "scripts, o reinicia OBS. Luego pulsa Verificar instalación. A partir de "
+                          "esta versión del script, las próximas actualizaciones se aplican solas."]
         (QMessageBox.warning if failed else QMessageBox.information)(
             self, "Actualizar Autopilot v2", "\n".join(lines))
         self._refresh_status()
