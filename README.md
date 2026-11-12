@@ -143,7 +143,7 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 * **Python 3.10+** (o el instalador `.exe` que ya trae Python embebido)
 * **OBS Studio 28.0+** con WebSocket habilitado
 * **Plugin Source Record de Exeldro** — necesario para canales multi-salida. **Viene embebido en la app**: el instalador lo instala en un OBS Studio instalado; para OBS portable o remoto, Ajustes → Plugin Source Record (ver Instalación).
-* **Librerías Python:** `PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`
+* **Librerías Python:** las de `requirements.txt` (`PyQt6`, `obsws-python`, `python-dotenv`, `Pillow`, …)
 
 ## 🚀 Instalación y Configuración
 
@@ -161,14 +161,26 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
    venv\Scripts\activate
    ```
 
-2. **Instalar dependencias:**
+2. **Instalar dependencias** (versiones fijadas en `requirements.txt`; `requirements-dev.txt` añade `lupa` para los tests del script Lua):
    ```powershell
-   pip install PyQt6 obsws-python python-dotenv Pillow pywin32
+   pip install -r requirements-dev.txt
    ```
 
-3. **Ejecutar:**
+3. **Descargar el plugin Source Record embebido** (una vez; queda en `vendor/`, ignorado por git). Sin esto, "Instalar en este OBS" y "Exportar paquete" de Ajustes → Plugin Source Record no tienen nada que copiar:
+   ```powershell
+   python scripts/bundle_source_record.py
+   ```
+
+4. **Ejecutar:**
    ```powershell
    python main.py
+   ```
+
+5. **Tests** (sin OBS; los de interfaz corren headless con `QT_QPA_PLATFORM=offscreen`). La lista exacta que corre el CI antes de cada release está en `.github/workflows/release.yml`; por ejemplo:
+   ```powershell
+   $env:QT_QPA_PLATFORM = "offscreen"
+   python scripts	est_canal_model.py
+   python scripts	est_autopilot_hot_reload.py
    ```
 
 ### ⚙ Configurar OBS WebSocket
@@ -288,6 +300,7 @@ Al seleccionar un canal en el sidebar de Producción, el panel derecho muestra:
 | **▶ Transmitir** | Habilita/deshabilita el filtro UDP del canal. Cuando está prendido, el UDP sale. |
 | **▶ / ⏮ / ⏸ / ⏭ / ⏹** | Play / anterior / pausar / siguiente / stop del rotador de ESE canal (independiente de otros canales). |
 | **🔬 Diagnóstico** | Lee los settings efectivos del filtro `udp_out` desde OBS. Útil cuando el stream no se ve como esperás — verifica encoder, bitrate, keyframe, profile, etc. |
+| **➕ Agregar / Quitar / ▲ ▼ / Editar duración** | Arman la playlist del canal. Agregar permite marcar varias escenas de la Biblioteca a la vez (filtro, "Seleccionar todas / Ninguna", override de duración común); Editar duración ajusta un item. |
 
 Los cambios de playlist (agregar, quitar, reordenar, editar duración) y de configuración del canal se aplican solos en OBS; no hay botón de "aplicar".
 
@@ -416,6 +429,16 @@ Después de la primera instalación, cada vez que la app arranca y detecta el sc
 - `🎛 Autopilot v2.2.0 listo · N canales` cuando el script está en standby (la app lo controla).
 - `🚀 Autopilot v2.2.0 activo · K/N rotando` cuando el script tomó control.
 
+### Actualizaciones del script
+
+Cada versión de la app trae su propio `autopilot_v2.lua`; la barra de estado avisa en naranja ("⬆ vX disponible") cuando OBS ejecuta uno más viejo.
+
+| Dónde corre OBS | Qué hay que hacer |
+|---|---|
+| **Mismo equipo** que la app | Nada. Al conectar, la app localiza el `.lua` registrado en Herramientas → Scripts y lo sobrescribe (deja `.bak`). Un script **2.2.0 o superior** lo nota en ≤ 10 s y se recarga solo. También desde Ajustes → Autopilot v2 → "⬆ Actualizar el script en este OBS". |
+| Mismo equipo, pero OBS ejecuta un script **anterior a 2.2.0** | Una única vez: Herramientas → Scripts → ↻ Recargar scripts (o reiniciar OBS). A partir de ahí es automático. |
+| **Otro equipo** | Exportar el `.lua` desde Ajustes → Autopilot v2 y reemplazar el archivo en el servidor; si el que corre allí es 2.2.0+, se recarga solo al cambiar el archivo. |
+
 ### Verificación end-to-end
 
 1. Levanta la app, conecta a OBS, habilita al menos un canal multi-salida y pulsa **▶ Transmitir + Play**.
@@ -466,9 +489,11 @@ Los cambios posteriores (URL, ancho, alto, CSS, zoom, pan, refresh interval, mut
 
 Cada tag `vX.Y.Z` pusheado a `main` dispara automáticamente el workflow `.github/workflows/release.yml` que:
 
-1. Compila la app con PyInstaller en modo `--onedir` (vía `OBS_Automation_Manager.spec`).
-2. Empaqueta la carpeta resultante con **Inno Setup** (`installer.iss`).
-3. Publica el instalador `OBS_Automation_Manager_Setup_vX.Y.Z.exe` como asset del GitHub Release.
+1. Instala `requirements-dev.txt` y corre la lista de tests de regresión (modelo, controladores, vistas headless, instaladores, script Lua con LuaJIT); si uno falla, no hay release.
+2. Escribe la versión del tag en `core/version.py` y descarga el plugin Source Record con SHA-256 fijado (`scripts/bundle_source_record.py`).
+3. Compila la app con PyInstaller en modo `--onedir` (vía `OBS_Automation_Manager.spec`) y verifica que el plugin y el script Lua quedaron dentro.
+4. Empaqueta la carpeta resultante con **Inno Setup** (`installer.iss`).
+5. Publica el instalador `OBS_Automation_Manager_Setup_vX.Y.Z.exe` como asset del GitHub Release.
 
 **Características del instalador:**
 - **Per-user, sin admin**: no requiere UAC ni password de administrador.
@@ -476,6 +501,7 @@ Cada tag `vX.Y.Z` pusheado a `main` dispara automáticamente el workflow `.githu
 - Crea shortcut en Start Menu (Desktop opcional).
 - Aparece en "Aplicaciones instaladas" del usuario con desinstalador propio.
 - Al desinstalar preserva `%LOCALAPPDATA%\OBS_Automation_Manager\` (BD, logs, `.env`) — reinstalar / upgrade conserva la configuración.
+- Tarea opcional **"Instalar el plugin Source Record en OBS Studio"** (marcada por defecto, visible solo si detecta un OBS Studio instalado): copia el plugin a `C:\ProgramData\obs-studio\plugins\source-record\` con el layout que corresponde a la versión de OBS. No se borra al desinstalar la app.
 
 **Compilación local (opcional):**
 ```bash
