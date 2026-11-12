@@ -299,12 +299,15 @@ class MainWindow(QMainWindow):
             f"color: {COLORS['text_muted']}; font-family: monospace;"
         )
 
-    def set_autopilot_v2_ui(self, state: dict | None) -> None:
+    def set_autopilot_v2_ui(self, state: dict | None, update_hint: str | None = None) -> None:
         """Actualiza el label de Autopilot v2 segun el state leido del Lua.
 
         `state`:
             None → script no detectado o no se pudo leer; oculta el label.
             dict con `mode` y `canales[]` → formatea segun standby/active.
+        `update_hint`: texto opcional (p. ej. "v2.1.0 disponible — recarga
+            scripts en OBS") cuando el Lua en ejecucion es mas viejo que el
+            embebido; se muestra en naranja al final del label.
         """
         if state is None:
             self.lbl_autopilot_v2.setVisible(False)
@@ -332,6 +335,11 @@ class MainWindow(QMainWindow):
             )
             self.lbl_autopilot_v2.setStyleSheet(
                 f"color: {COLORS['state_success']}; font-weight: bold;"
+            )
+        if update_hint:
+            self.lbl_autopilot_v2.setText(self.lbl_autopilot_v2.text() + f"· {update_hint} ")
+            self.lbl_autopilot_v2.setStyleSheet(
+                f"color: {COLORS['state_warning']}; font-weight: bold;"
             )
         self.lbl_autopilot_v2.setVisible(True)
 

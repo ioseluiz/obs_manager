@@ -32,7 +32,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from core import autopilot_installer as api
 from core.autopilot_paths import autopilot_v2_lua_path
+from core.source_record_installer import detect_local_obs
 
 log = logging.getLogger(__name__)
 
@@ -43,11 +45,16 @@ _CONFIG_SOURCE_V1 = "__autopilot_config__"
 
 
 class AutopilotInstallV2Dialog(ResponsiveDialog):
-    def __init__(self, autopilot_client, parent=None):
+    def __init__(self, autopilot_client, parent=None, settings: dict | None = None,
+                 is_local: bool = False):
         super().__init__(parent)
         self._ap = autopilot_client
+        self._settings = settings or {}
+        self._is_local = bool(is_local)
+        self._local = detect_local_obs(self._settings.get("obs_exe_path")) if self._is_local else None
+        self._plan = None
         self.setWindowTitle("Instalar Autopilot v2 en OBS")
-        self.setMinimumSize(640, 480)
+        self.setMinimumSize(640, 520)
 
         layout = QVBoxLayout(self)
 
@@ -65,6 +72,13 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         )
         self.lbl_status.setWordWrap(True)
         layout.addWidget(self.lbl_status)
+
+        # Versiones: embebida en la app / en ejecucion en OBS / archivo
+        # registrado en Herramientas -> Scripts (solo con OBS local).
+        self.lbl_versions = QLabel()
+        self.lbl_versions.setWordWrap(True)
+        self.lbl_versions.setProperty("role", "status-muted")
+        layout.addWidget(self.lbl_versions)
 
         # Instrucciones de registro
         instr = QTextEdit()
@@ -89,12 +103,20 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         layout.addWidget(instr)
 
         btn_row = QHBoxLayout()
+        self.btn_update_local = QPushButton("⬆ Actualizar el script en este OBS")
+        self.btn_update_local.setProperty("role", "primary")
+        self.btn_update_local.setToolTip(
+            "Sobrescribe el autopilot_v2.lua registrado en Herramientas → Scripts "
+            "de este OBS con la versión embebida (deja un .bak). Después hay que "
+            "recargar scripts o reiniciar OBS."
+        )
         self.btn_export_downloads = QPushButton("📥 Exportar a Descargas")
         self.btn_export_as = QPushButton("💾 Exportar como…")
         self.btn_verify = QPushButton("🔎 Verificar instalación")
         self.btn_verify.setProperty("role", "success")
         self.btn_close = QPushButton("Cerrar")
         self.btn_close.setProperty("role", "muted")
+        btn_row.addWidget(self.btn_update_local)
         btn_row.addWidget(self.btn_export_downloads)
         btn_row.addWidget(self.btn_export_as)
         btn_row.addStretch(1)
@@ -102,11 +124,68 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
         btn_row.addWidget(self.btn_close)
         layout.addLayout(btn_row)
 
+        self.btn_update_local.clicked.connect(self._on_update_local)
         self.btn_export_downloads.clicked.connect(self._on_export_downloads)
         self.btn_export_as.clicked.connect(self._on_export_as)
         self.btn_verify.clicked.connect(self._on_verify)
         self.btn_close.clicked.connect(self.accept)
 
+        self._refresh_status()
+
+    # ----------------------------------------------------------------------
+    # Versiones + actualizacion en OBS local
+    # ----------------------------------------------------------------------
+
+    def _refresh_versions(self):
+        running = None
+        try:
+            running = self._ap.script_version()
+        except Exception:
+            pass
+        self._plan = api.plan_update(self._local, running)
+        plan = self._plan
+        parts = [f"Embebida en la app: v{plan.bundled_version or '?'}",
+                 f"en ejecución en OBS: v{running or '—'}"]
+        if self._is_local:
+            if plan.registered:
+                for r in plan.registered:
+                    parts.append(f"archivo registrado: {r.describe()}")
+            elif self._local:
+                parts.append("archivo registrado: ninguno (el script no está cargado en Herramientas → Scripts)")
+            else:
+                parts.append("OBS local no localizado (obs64.exe); no se puede buscar el archivo registrado")
+        else:
+            parts.append("OBS remoto: actualiza con Exportar y cárgalo en el servidor")
+        self.lbl_versions.setText(" · ".join(parts))
+        can_update = bool(self._is_local and self._local and plan.registered)
+        self.btn_update_local.setEnabled(can_update)
+        if can_update and plan.running_outdated and not plan.outdated_files:
+            self.btn_update_local.setToolTip(
+                "El archivo ya tiene la versión embebida; OBS la usará al recargar scripts o reiniciar.")
+
+    def _on_update_local(self):
+        plan = self._plan or api.plan_update(self._local, None)
+        targets = plan.registered
+        if not targets:
+            QMessageBox.information(self, "Sin script registrado",
+                                    "No hay autopilot_v2.lua registrado en Herramientas → Scripts de este OBS.")
+            return
+        results = api.update_registered_scripts(targets)
+        changed = [r for r in results if r.ok and r.changed]
+        failed = [r for r in results if not r.ok]
+        lines = []
+        if changed:
+            lines.append(f"Actualizado a v{plan.bundled_version or '?'}:")
+            lines += [f"  • {r.path}" for r in changed]
+        else:
+            lines.append("Los archivos ya estaban al día.")
+        if failed:
+            lines.append("No se pudo actualizar:")
+            lines += [f"  • {r.path}: {r.message}" for r in failed]
+        lines += ["", "Para que OBS use la versión nueva: Herramientas → Scripts → ↻ Recargar "
+                      "scripts, o reinicia OBS. Luego pulsa Verificar instalación."]
+        (QMessageBox.warning if failed else QMessageBox.information)(
+            self, "Actualizar Autopilot v2", "\n".join(lines))
         self._refresh_status()
 
     # ----------------------------------------------------------------------
@@ -137,6 +216,12 @@ class AutopilotInstallV2Dialog(ResponsiveDialog):
                 "el Autopilot v1 instalado. Convivirán sin problemas.</span>"
             )
         self.lbl_status.setText(msg)
+        self._refresh_versions()
+        if self._plan is not None and self._plan.running_outdated and self._ap.is_installed():
+            self.lbl_status.setText(
+                msg + "<br><br><span style='color:#664D03;'>⬆ Hay una versión más nueva del "
+                f"script (v{self._plan.bundled_version}). Actualízala en este OBS y recarga "
+                "scripts, o expórtala al servidor.</span>")
 
     def _detect_v1(self) -> bool:
         """True si el `__autopilot_config__` v1 existe en OBS. No afecta
