@@ -161,6 +161,26 @@ def main():
     m.clear_items(c1_id)
     _check(m.get_items(c1_id) == [], "clear_items deja lista vacía")
 
+    print("\n[Items — add_items en lote]")
+    batch = m.add_items(c1_id, [secuencia_id, secuencia_id, secuencia_id],
+                        duracion_override_seg=7)
+    _check(len(batch) == 3 and batch == sorted(batch) and len(set(batch)) == 3,
+           "add_items devuelve 3 ids distintos y crecientes")
+    items = m.get_items(c1_id)
+    _check([i["id"] for i in items] == batch, "get_items devuelve el lote en el mismo orden")
+    _check([i["orden"] for i in items] == [1, 2, 3],
+           f"orden consecutivo desde 1 (dio {[i['orden'] for i in items]})")
+    _check(all(i["duracion_override_seg"] == 7 for i in items), "override 7 en todos")
+    solo = m.add_item(c1_id, secuencia_id)
+    more = m.add_items(c1_id, [secuencia_id])
+    orders = {i["id"]: i["orden"] for i in m.get_items(c1_id)}
+    _check(orders[more[0]] == orders[solo] + 1, "add_items continúa desde MAX(orden)+1")
+    _check(m.get_items(c1_id)[-1]["duracion_override_seg"] is None, "sin override → NULL")
+    _check(m.add_items(c1_id, []) == [] and len(m.get_items(c1_id)) == 5,
+           "lista vacía → [] sin tocar la DB")
+    m.clear_items(c1_id)
+    _check(m.get_items(c1_id) == [], "lote limpiado para el bloque siguiente")
+
     # === Duplicate canal (R-5) ===
     print("\n[Duplicate — clona canal + items, arranca deshabilitado]")
     # Preparar c1 con 2 items nuevamente (los eliminamos con clear_items)

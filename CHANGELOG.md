@@ -22,6 +22,23 @@
   cooldown) y archivo que falla al ejecutar (se restaura). Documentado en
   `PROTOCOL_v2.md` y README.
 
+### Agregado — Agregar varias escenas a la playlist de un canal
+
+- `views/canal_item_picker_dialog.py`: el diálogo de ➕ Agregar pasa de
+  elegir una escena a marcar varias (checkboxes), con filtro por nombre,
+  "Seleccionar todas" (solo las visibles) / "Ninguna", contador de
+  marcadas y un único override de duración para todo el lote (0 = la de
+  cada escena). Las secuencias que ya están en la playlist se muestran en
+  gris con "ya en el canal ×N" sin bloquearlas (los repetidos siguen
+  permitidos). `get_selections()` devuelve el lote en orden de la
+  Biblioteca; `get_selection()` se conserva por compatibilidad.
+- `models/canal_model.py`: `add_items()` inserta el lote en una sola
+  transacción con `orden` consecutivo (rollback si algo falla).
+- `views/canal_detail_view.py`: `_add_items_to_canal()` persiste el lote y
+  dispara `apply_canal` (que reconstruye los scene items en OBS) **una
+  sola vez**, en lugar de una por escena. Tests: `test_canal_model.py`
+  (ahora también en CI) y `test_canal_detail_view_smoke.py`.
+
 ## [2.2.2] — 2026-11-12
 
 Instalar sobre v2.2.1 preserva DB, logs y `.env`.

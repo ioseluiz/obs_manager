@@ -294,6 +294,44 @@ class CanalModel:
         finally:
             conn.close()
 
+    def add_items(self, canal_id: int, secuencia_ids: list[int],
+                  duracion_override_seg: int | None = None) -> list[int]:
+        """Añade varios items al final de la playlist en UNA transacción.
+
+        `orden` consecutivo a partir de MAX(orden)+1 respetando el orden de
+        `secuencia_ids` (se permiten repetidos, como en `add_item`). Lista
+        vacía → `[]` sin tocar la DB. Si un INSERT falla, rollback: no queda
+        ninguno. Devuelve los ids nuevos en el mismo orden.
+        """
+        ids = [int(s) for s in secuencia_ids]
+        if not ids:
+            return []
+        override = int(duracion_override_seg) if duracion_override_seg is not None else None
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(MAX(orden), 0) + 1 FROM canal_items WHERE canal_id = ?",
+                (canal_id,),
+            )
+            base = int(cursor.fetchone()[0])
+            new_ids: list[int] = []
+            for i, sid in enumerate(ids):
+                cursor.execute(
+                    "INSERT INTO canal_items "
+                    "(canal_id, secuencia_id, orden, duracion_override_seg) "
+                    "VALUES (?, ?, ?, ?)",
+                    (canal_id, sid, base + i, override),
+                )
+                new_ids.append(int(cursor.lastrowid))
+            conn.commit()
+            return new_ids
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def update_item_duracion(self, item_id: int, duracion_override_seg: int | None) -> None:
         conn = get_connection()
         try:
