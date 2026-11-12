@@ -1,4 +1,8 @@
-## [Unreleased] — v2.2.0
+## [2.2.0] — 2026-11-12
+
+Lote de fixes y mejoras sobre v2.1.0, validado en dos prereleases
+(`v2.2.0-rc.1`, `v2.2.0-rc.2`) en equipos con OBS portable e instalado.
+Instalar sobre v2.1.0 preserva DB, logs y `.env`.
 
 ### Agregado — Instalación automática del plugin Source Record
 
