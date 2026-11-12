@@ -1,4 +1,6 @@
-## [Unreleased]
+## [2.2.2] — 2026-11-12
+
+Instalar sobre v2.2.1 preserva DB, logs y `.env`.
 
 ### Agregado — Actualización automática del Autopilot v2 (nivel A)
 
