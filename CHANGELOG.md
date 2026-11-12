@@ -1,4 +1,15 @@
-## [Unreleased]
+## [2.2.1] — 2026-11-12
+
+Corrección urgente sobre v2.2.0 (videos en negro reportados por un cliente).
+Instalar sobre v2.2.0 preserva DB, logs y `.env`. **Requiere re-exportar e
+instalar el `autopilot_v2.lua` 2.1.0 en los servidores con Autopilot.**
+
+### Agregado
+
+- `scripts/diagnose_client_media.ps1` y `.cmd`: diagnóstico de solo lectura
+  para equipos cliente (rutas de videos/imágenes de OBS, OneDrive, módulo
+  obs-ffmpeg y DLL de FFmpeg, plugin Source Record, errores del log de OBS
+  y de la app). La versión CMD es para equipos con PowerShell bloqueado.
 
 ### Corregido
 
