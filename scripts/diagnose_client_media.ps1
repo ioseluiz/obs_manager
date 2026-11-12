@@ -66,6 +66,12 @@ $pluginDll = @(
     "$env:ProgramData\obs-studio\plugins\source-record\source-record.dll"
 ) | Where-Object { $_ -and (Test-Path $_) }
 "Plugin Source Record: " + $(if ($pluginDll) { ($pluginDll | ForEach-Object { "$_ ($((Get-Item $_).Length) bytes)" }) -join ' ; ' } else { "NO encontrado" })
+# Modulo de video de OBS y DLLs de FFmpeg: si el portable se copio incompleto, TODOS los videos salen negros.
+$ffmod = Join-Path $ObsRoot "obs-plugins\64bit\obs-ffmpeg.dll"
+"obs-ffmpeg.dll: " + $(if (Test-Path $ffmod) { "OK ($((Get-Item $ffmod).Length) bytes)" } else { ">>> FALTA: OBS no puede reproducir videos. Reinstalar / recopiar OBS completo." })
+$ffdlls = Get-ChildItem (Join-Path $ObsRoot "bin\64bit") -Include avcodec*.dll, avformat*.dll, avutil*.dll, swscale*.dll -Recurse -ErrorAction SilentlyContinue
+"DLLs FFmpeg en bin\64bit: " + $(if ($ffdlls) { ($ffdlls | ForEach-Object { "$($_.Name)=$($_.Length)" }) -join ', ' } else { ">>> NINGUNA (copia incompleta)" })
+foreach ($d in $ffdlls) { if ($d.Length -eq 0) { ">>> $($d.Name) tiene 0 bytes (copia incompleta / marcador OneDrive)" } }
 
 # --- Fuentes de video/imagen en la coleccion de escenas ---
 Section "Archivos de las fuentes de video / imagen en OBS"
@@ -115,7 +121,7 @@ $logDir = Join-Path $cfg "logs"
 $log = Get-ChildItem $logDir -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($log) {
     "Log: $($log.FullName)"
-    $pat = 'Media Source|ffmpeg_source|MP: |mp_media|Failed to open|avformat|Invalid data|decod|texture|D3D11|hw_decod|source-record|Source Record|obs-websocket'
+    $pat = 'Media Source|ffmpeg_source|MP: |mp_media|Failed to open|avformat|Invalid data|decod|texture|D3D11|hw_decod|source-record|Source Record|obs-websocket|VBV|Failed to load|LoadLibrary|obs-ffmpeg|Loaded Modules|Skipping module|not found|Available Video Adapters|Adapter 0|Loading up D3D11'
     Get-Content $log.FullName | Select-String -Pattern $pat | Where-Object { $_ -notmatch 'obs-browser' } | Select-Object -Last 60 | ForEach-Object { "  " + $_.Line }
 } else { "No hay logs en $logDir" }
 
