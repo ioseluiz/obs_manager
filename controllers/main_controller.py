@@ -399,10 +399,15 @@ class MainController:
             return
         hint = None
         try:
-            from core.autopilot_installer import bundled_script_version, is_newer
+            from core.autopilot_installer import (bundled_script_version, is_newer,
+                                                  supports_hot_reload)
             bundled = bundled_script_version()
-            if state and is_newer(bundled, state.get("script_version")):
-                hint = f"⬆ v{bundled} disponible — recarga scripts en OBS"
+            running = state.get("script_version") if state else None
+            if state and is_newer(bundled, running):
+                if supports_hot_reload(running):
+                    hint = f"⬆ v{bundled} disponible — OBS la carga sola al actualizar el archivo"
+                else:
+                    hint = f"⬆ v{bundled} disponible — recarga scripts en OBS"
         except Exception as e:
             log.debug("Chequeo de version del Autopilot fallo: %s", e)
         self.main_window.set_autopilot_v2_ui(state, update_hint=hint)
@@ -414,9 +419,11 @@ class MainController:
     def _maybe_update_autopilot_script(self):
         """Nivel A de la auto-actualizacion: si OBS corre en esta maquina y
         el Lua en ejecucion es mas viejo que el embebido, sobrescribe el
-        archivo registrado en Herramientas -> Scripts (con .bak) y avisa
-        que hay que recargar scripts o reiniciar OBS. Una vez por sesion.
-        Nunca interrumpe el flujo de conexion."""
+        archivo registrado en Herramientas -> Scripts (con .bak). Si el Lua
+        en ejecucion ya sabe recargarse solo (>= 2.2.0, nivel B) basta un
+        aviso en la barra de estado; si no, avisa que hay que recargar
+        scripts o reiniciar OBS. Una vez por sesion. Nunca interrumpe el
+        flujo de conexion."""
         if getattr(self, "_autopilot_update_checked_this_session", False):
             return
         self._autopilot_update_checked_this_session = True
@@ -443,6 +450,15 @@ class MainController:
             results = update_registered_scripts(plan.outdated_files)
             changed = [r for r in results if r.ok and r.changed]
             failed = [r for r in results if not r.ok]
+            if plan.running_hot_reloads and not failed:
+                # Nivel B: el script vigila su archivo y se recarga solo en
+                # unos segundos; el refresh periodico pintara la version nueva.
+                if changed:
+                    self.main_window.statusBar().showMessage(
+                        f"Autopilot v2 actualizado en disco (v{running} → "
+                        f"v{plan.bundled_version}); OBS lo recarga solo en unos segundos.",
+                        20000)
+                return
             lines = []
             if changed:
                 lines.append("Se actualizó el script Autopilot v2 en disco "
@@ -459,7 +475,8 @@ class MainController:
             lines.append("")
             lines.append("Para que OBS use la versión nueva: Herramientas → Scripts → "
                          "botón ↻ Recargar scripts, o reinicia OBS. Hasta entonces, con la "
-                         "app cerrada, los videos pueden verse en negro.")
+                         "app cerrada, los videos pueden verse en negro. A partir de esta "
+                         "versión del script, las próximas actualizaciones se aplican solas.")
             QMessageBox.information(self.main_window, "Autopilot v2 actualizado", "\n".join(lines))
         except Exception as e:
             log.warning("Auto-actualización del Autopilot v2 falló: %s", e)

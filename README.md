@@ -130,7 +130,8 @@ Eliminación y creación de escenas en espejo (App + OBS) para mantener el entor
 - **Script Lua residente** — se instala una sola vez en el OBS del servidor y mantiene la rotación de todos los canales activa cuando la app cliente se cierra o la laptop se apaga.
 - **Modo `scene_items`** — `SetSceneItemEnabled` dentro de la escena contenedora de cada canal. El script conserva el modo `program_global` (`SetCurrentProgramScene`) solo por compatibilidad con payloads v2-beta; la app v2.0.0 ya no lo publica.
 - **Videos sin depender de Program (script 2.1.0)** — OBS solo arranca un media source por sí mismo cuando su escena está en Program, y la escena contenedora de un canal normalmente no lo está (Modo Estudio, otra escena seleccionada). Por eso, al mostrar un item de video, la app y el script ordenan el arranque explícito (`restart` o `play`) y al ocultarlo lo paran (`stop` o `pause`). Si tienes un `autopilot_v2.lua` anterior a 2.1.0 cargado en el servidor, re-expórtalo e instálalo (Ajustes → Autopilot v2) o los videos saldrán en negro mientras la app esté cerrada.
-- **Actualización automática del script (OBS local)** — al conectar, si el Lua que corre en OBS es más viejo que el embebido en la app, la app localiza el archivo registrado en Herramientas → Scripts (lo lee de la colección de escenas de OBS) y lo sobrescribe sola (deja un `.bak`). Solo queda recargar scripts (Herramientas → Scripts → ↻) o reiniciar OBS; la barra de estado lo recuerda en naranja hasta que OBS ejecute la versión nueva. También desde Ajustes → Autopilot v2 → "⬆ Actualizar el script en este OBS". Con OBS en otro equipo sigue siendo Exportar + cargar.
+- **Actualización automática del script (OBS local)** — al conectar, si el Lua que corre en OBS es más viejo que el embebido en la app, la app localiza el archivo registrado en Herramientas → Scripts (lo lee de la colección de escenas de OBS) y lo sobrescribe sola (escritura atómica, deja un `.bak`). También desde Ajustes → Autopilot v2 → "⬆ Actualizar el script en este OBS". Con OBS en otro equipo sigue siendo Exportar + cargar.
+- **Recarga en caliente (script 2.2.0+)** — el propio Lua mira su archivo cada 10 s y, si la versión declarada en disco cambió, se descarga, ejecuta el archivo nuevo en el mismo estado Lua y arranca la versión nueva: no hay que pulsar ↻ Recargar scripts ni reiniciar OBS. Si el archivo nuevo no compila o falla al cargar, restaura la versión en ejecución y reintenta al minuto (queda en el log de OBS). Un Lua anterior a 2.2.0 en ejecución todavía necesita una recarga manual (una sola vez); la barra de estado lo recuerda en naranja.
 - **Hand-off bidireccional** — al cerrar la app publica un último payload con `active_index + seconds_remaining` por canal; al reconectar lee el estado del Lua y restaura los rotadores locales sin salto visible en la UI.
 - **Protección de filtros Source Record** — mientras el Lua tiene control, en cada tick verifica que cada filtro `udp_out` esté habilitado y lo re-habilita si lo encuentra off.
 - **Convivencia con Autopilot v1** — buzones distintos (`__autopilot_config_v2__` / `__autopilot_state_v2__`); si tienes el script v1 cargado en el mismo OBS, ambos coexisten.
@@ -404,7 +405,7 @@ Un script Lua residente dentro de OBS (`autopilot_v2.lua`) escucha un buzón JSO
 3. En el OBS del servidor: **Herramientas → Scripts → +** y selecciona el `autopilot_v2.lua` exportado.
 4. En el log de Scripts de OBS deberías ver:
    ```
-   [autopilot_v2] cargando v2.1.0
+   [autopilot_v2] cargando v2.2.0 desde C:/.../autopilot_v2.lua
    [autopilot_v2] creado text source: __autopilot_config_v2__
    [autopilot_v2] creado text source: __autopilot_state_v2__
    [autopilot_v2] timers armados; a la espera de config v2 de la app
@@ -412,8 +413,8 @@ Un script Lua residente dentro de OBS (`autopilot_v2.lua`) escucha un buzón JSO
 5. Vuelve al diálogo de la app y pulsa **🔎 Verificar instalación**. Debería confirmar la versión y modo actual.
 
 Después de la primera instalación, cada vez que la app arranca y detecta el script, aparece en la barra de estado:
-- `🎛 Autopilot v2.1.0 listo · N canales` cuando el script está en standby (la app lo controla).
-- `🚀 Autopilot v2.1.0 activo · K/N rotando` cuando el script tomó control.
+- `🎛 Autopilot v2.2.0 listo · N canales` cuando el script está en standby (la app lo controla).
+- `🚀 Autopilot v2.2.0 activo · K/N rotando` cuando el script tomó control.
 
 ### Verificación end-to-end
 

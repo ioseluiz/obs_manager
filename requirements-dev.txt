@@ -1,0 +1,3 @@
+-r requirements.txt
+# Solo para tests: ejecuta obs_scripts/autopilot_v2.lua con LuaJIT (mismo Lua 5.1 que OBS).
+lupa==2.8

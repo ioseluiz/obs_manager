@@ -85,12 +85,23 @@ class AutopilotInstallerTests(unittest.TestCase):
         self.assertEqual(ai.read_script_version(old), "2.1.0")
         self.assertEqual(ai.read_script_version(old.with_suffix(".lua.bak")), "2.0.0")
         self.assertEqual(ai.read_script_version(targets[1].path), "2.1.0")
+        self.assertEqual([x.name for x in old.parent.glob('*.tmp')], [], 'escritura atomica: sin temporales')
         again = ai.update_registered_scripts([ai.RegisteredScript(old, "Untitled", True, "2.1.0")], source=src)
         self.assertTrue(again[0].ok and not again[0].changed)
         same = ai.update_registered_scripts([ai.RegisteredScript(src, "Dev", True, "2.1.0")], source=src)
         self.assertTrue(same[0].ok and not same[0].changed, "el propio embebido no se toca")
         missing = ai.update_registered_scripts([ai.RegisteredScript(old, "U", True, "2.1.0")], source=self.tmp / "nope.lua")
         self.assertFalse(missing[0].ok)
+
+    def test_supports_hot_reload(self):
+        self.assertTrue(ai.supports_hot_reload(ai.HOT_RELOAD_MIN_VERSION))
+        self.assertTrue(ai.supports_hot_reload("2.3.0"))
+        self.assertFalse(ai.supports_hot_reload("2.1.0"))
+        self.assertFalse(ai.supports_hot_reload(None))
+        self.assertFalse(ai.supports_hot_reload("abc"))
+        self.assertTrue(ai.supports_hot_reload(ai.bundled_script_version()), "el Lua embebido ya se recarga solo")
+        self.assertTrue(ai.UpdatePlan("2.3.0", "2.2.0").running_hot_reloads)
+        self.assertFalse(ai.UpdatePlan("2.3.0", "2.1.0").running_hot_reloads)
 
     def test_plan_update_states(self):
         old = self.tmp / "obs" / "autopilot_v2.lua"; old.parent.mkdir(); old.write_text(lua("2.0.0"))
