@@ -264,7 +264,7 @@ La app se organiza en pestañas en la barra superior. Estos son los primeros pas
    - **TTL / pkt_size** (opcionales) — parámetros multicast. Dejalos en `(sin setear)` para unicast; típico `32` / `1316` para multicast entre subredes.
    - **Encoder / Bitrate / Resolución / FPS** — el cost hint del dialog muestra cuánto pesa este canal.
 5. Guardar → el canal aparece en el sidebar. Seleccionarlo → panel de la derecha.
-6. Botón **➕ Agregar** para armar la playlist del canal (elegís secuencias de la Biblioteca). Cada cambio de playlist se aplica solo en OBS.
+6. Botón **➕ Agregar** para armar la playlist del canal: marcás una o varias secuencias de la Biblioteca (checkboxes, filtro por nombre, "Seleccionar todas / Ninguna") y se agregan de golpe en el orden de la Biblioteca; las que ya están en el canal aparecen en gris con «ya en el canal ×N», pero se pueden repetir. Cada cambio de playlist se aplica solo en OBS (una sola vez por lote).
 7. Botón **▶ Transmitir** → arranca el output UDP.
 8. Botón **▶** (Play del rotador) → empieza a alternar entre los items del canal.
 

@@ -17,6 +17,9 @@ canales regulares. Canal Principal usa `CanalPrincipalDetailView`.
 """
 from __future__ import annotations
 
+from collections import Counter
+from itertools import groupby
+
 from views.widgets.responsive_layout import FlowLayout
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -514,20 +517,40 @@ class CanalDetailView(QWidget):
                 "Primero cree escenas.",
             )
             return
-        dlg = CanalItemPickerDialog(secuencias, parent=self)
+        existing = Counter(
+            int(it["secuencia_id"]) for it in self.canal_model.get_items(self._canal_id)
+        )
+        dlg = CanalItemPickerDialog(
+            secuencias, parent=self, existing_counts=dict(existing),
+        )
         if dlg.exec() != CanalItemPickerDialog.DialogCode.Accepted:
             return
-        secuencia_id, override = dlg.get_selection()
+        self._add_items_to_canal(dlg.get_selections())
+
+    def _add_items_to_canal(self, selections: list[tuple[int, int | None]]) -> bool:
+        """Persiste un lote de (secuencia_id, override) en una transacción y
+        sincroniza OBS UNA sola vez (apply_canal reconstruye todos los scene
+        items, así que no debe dispararse por cada escena). True si agregó."""
+        if self._canal_id is None or not selections:
+            return False
+        # El picker aplica un mismo override a todo el lote (un solo grupo);
+        # si llegaran overrides distintos, se agrupan tramos consecutivos.
         try:
-            self.canal_model.add_item(
-                self._canal_id, secuencia_id, duracion_override_seg=override,
-            )
+            for override, group in groupby(selections, key=lambda sel: sel[1]):
+                self.canal_model.add_items(
+                    self._canal_id, [sid for sid, _ in group],
+                    duracion_override_seg=override,
+                )
         except Exception as e:
-            QMessageBox.critical(self, "Error al agregar item", str(e))
-            return
+            QMessageBox.critical(self, "Error al agregar items", str(e))
+            return False
         self._refresh_items()
+        last = self.tbl_items.rowCount() - 1
+        if last >= 0:
+            self.tbl_items.selectRow(last)
         self._auto_apply_after_playlist_change()
         self.canal_changed.emit(self._canal_id)
+        return True
 
     def _on_remove_item(self):
         item_id = self._selected_item_id()

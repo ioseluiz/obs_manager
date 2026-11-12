@@ -163,6 +163,59 @@ def main():
     _check(dlg.get_override() is None,
            "get_override retorna None cuando 'usar default' está activo")
 
+    # Picker multi-selección (sin exec): marcado, filtro, override, compat
+    print("\n[picker multi-selección]")
+    from views.canal_item_picker_dialog import CanalItemPickerDialog
+    picker = CanalItemPickerDialog(sm.get_all_scenes(), existing_counts={seq_a: 1})
+    _check(picker._list.count() == 2, "picker lista las 2 secuencias")
+    _check("ya en el canal ×1" in picker._list.item(0).text(),
+           "ScenaA marcada como 'ya en el canal ×1'")
+    _check("ya en el canal" not in picker._list.item(1).text(),
+           "ScenaB sin marca de repetida")
+    _check(picker.get_selections() == [], "sin marcar → get_selections vacío")
+    _check(picker.lbl_count.text() == "0 marcadas", "contador en 0")
+    from PyQt6.QtCore import Qt
+    picker._list.item(1).setCheckState(Qt.CheckState.Checked)
+    picker._list.item(0).setCheckState(Qt.CheckState.Checked)
+    _check(picker.get_selections() == [(seq_a, None), (seq_b, None)],
+           "get_selections en orden de Biblioteca con override None")
+    _check(picker.lbl_count.text() == "2 marcadas", "contador en 2")
+    picker.spin_duration.setValue(12)
+    _check(picker.get_selections() == [(seq_a, 12), (seq_b, 12)],
+           "override 12 aplicado a todas")
+    _check(picker.get_selection() == (seq_a, 12), "get_selection (compat) = primera marcada")
+    picker._set_all(False)
+    _check(picker.get_selections() == [], "'Ninguna' desmarca todo")
+    picker.input_filter.setText("scenab")
+    _check(picker._list.item(0).isHidden() and not picker._list.item(1).isHidden(),
+           "filtro oculta ScenaA y deja ScenaB")
+    picker._set_all(True)
+    _check(picker.get_selections() == [(seq_b, 12)],
+           "'Seleccionar todas' marca solo las visibles")
+    picker.input_filter.setText("")
+    _check(not picker._list.item(0).isHidden(), "filtro vacío muestra todo")
+
+    # Lote en la vista: un solo apply_canal y un solo canal_changed
+    print("\n[agregar lote → apply_canal una sola vez]")
+    view.set_canal(canal_id)
+    n0 = view.tbl_items.rowCount()
+    apply_calls: list[int] = []
+    ctrl.apply_canal = lambda cid: (apply_calls.append(cid), (True, "ok"))[1]
+    changed: list[int] = []
+    view.canal_changed.connect(changed.append)
+    _check(view._add_items_to_canal([]) is False, "lote vacío → False")
+    _check(view._add_items_to_canal([(seq_a, None), (seq_b, 5)]) is True,
+           "lote de 2 → True")
+    _check(view.tbl_items.rowCount() == n0 + 2, "playlist muestra 2 filas más")
+    _check(view.tbl_items.item(n0, 1).text() == "ScenaA"
+           and view.tbl_items.item(n0 + 1, 1).text() == "ScenaB",
+           "filas nuevas al final en orden del lote")
+    _check("5 s (override)" in view.tbl_items.item(n0 + 1, 2).text(),
+           "override del lote visible")
+    _check(apply_calls == [canal_id], f"apply_canal una sola vez (dio {apply_calls})")
+    _check(changed == [canal_id], "canal_changed emitido una sola vez")
+    _check(view.tbl_items.currentRow() == n0 + 1, "última fila agregada queda seleccionada")
+
     print("\n✓ TODOS LOS CHECKS PASARON")
 
 
